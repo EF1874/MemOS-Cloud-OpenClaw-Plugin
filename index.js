@@ -62,7 +62,6 @@ function resolveConversationId(cfg, ctx) {
 }
 
 function buildSearchPayload(cfg, prompt, ctx) {
-  console.log('---------测试search ctx', ctx.sessionKey, ctx.sessionId, ctx.agentId);
   const queryRaw = `${cfg.queryPrefix || ""}${prompt}`;
   const query =
     Number.isFinite(cfg.maxQueryChars) && cfg.maxQueryChars > 0
