@@ -5,8 +5,8 @@ import {
   extractResultData,
   extractText,
   formatRecallHookResult,
-  USER_QUERY_MARKER,
   searchMemory,
+  stripOpenClawInjectedPrefix,
 } from "./lib/memos-cloud-api.js";
 import { startUpdateChecker } from "./lib/check-update.js";
 let lastCaptureTime = 0;
@@ -31,13 +31,6 @@ function warnMissingApiKey(log, context) {
       `Get API key: ${API_KEY_HELP_URL}`,
     ].join("\n"),
   );
-}
-
-function stripPrependedPrompt(content) {
-  if (!content) return content;
-  const idx = content.lastIndexOf(USER_QUERY_MARKER);
-  if (idx === -1) return content;
-  return content.slice(idx + USER_QUERY_MARKER.length).trimStart();
 }
 
 function getCounterSuffix(sessionKey) {
@@ -73,7 +66,8 @@ function resolveConversationId(cfg, ctx) {
 }
 
 function buildSearchPayload(cfg, prompt, ctx) {
-  const queryRaw = `${cfg.queryPrefix || ""}${prompt}`;
+  const cleanPrompt = stripOpenClawInjectedPrefix(prompt);
+  const queryRaw = `${cfg.queryPrefix || ""}${cleanPrompt}`;
   const query =
     Number.isFinite(cfg.maxQueryChars) && cfg.maxQueryChars > 0
       ? queryRaw.slice(0, cfg.maxQueryChars)
@@ -162,7 +156,7 @@ function pickLastTurnMessages(messages, cfg) {
   for (const msg of slice) {
     if (!msg || !msg.role) continue;
     if (msg.role === "user") {
-      const content = stripPrependedPrompt(extractText(msg.content));
+      const content = stripOpenClawInjectedPrefix(extractText(msg.content));
       if (content) results.push({ role: "user", content: truncate(content, cfg.maxMessageChars) });
       continue;
     }
@@ -180,7 +174,7 @@ function pickFullSessionMessages(messages, cfg) {
   for (const msg of messages) {
     if (!msg || !msg.role) continue;
     if (msg.role === "user") {
-      const content = stripPrependedPrompt(extractText(msg.content));
+      const content = stripOpenClawInjectedPrefix(extractText(msg.content));
       if (content) results.push({ role: "user", content: truncate(content, cfg.maxMessageChars) });
     }
     if (msg.role === "assistant" && cfg.includeAssistant) {
@@ -426,18 +420,19 @@ export default {
 
     api.on("before_agent_start", async (event, ctx) => {
       if (!cfg.recallEnabled) return;
-      if (!event?.prompt || event.prompt.length < 3) return;
+      const userPrompt = stripOpenClawInjectedPrefix(event?.prompt || "");
+      if (!userPrompt || userPrompt.length < 3) return;
       if (!cfg.apiKey) {
         warnMissingApiKey(log, "recall");
         return;
       }
 
       try {
-        const payload = buildSearchPayload(cfg, event.prompt, ctx);
+        const payload = buildSearchPayload(cfg, userPrompt, ctx);
         const result = await searchMemory(cfg, payload);
         const resultData = extractResultData(result);
         if (!resultData) return;
-        const filteredData = await maybeFilterRecallData(cfg, resultData, event.prompt, log);
+        const filteredData = await maybeFilterRecallData(cfg, resultData, userPrompt, log);
         const hookResult = formatRecallHookResult({ data: filteredData }, {
           wrapTagBlocks: true,
           relativity: payload.relativity,
