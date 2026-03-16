@@ -2,7 +2,7 @@
   "id": "memos-cloud-openclaw-plugin",
   "name": "MemOS Cloud OpenClaw Plugin",
   "description": "MemOS Cloud recall + add memory via lifecycle hooks",
-  "version": "0.1.9",
+  "version": "0.1.10-beta.0",
   "kind": "lifecycle",
   "main": "./index.js",
   "configSchema": {
@@ -57,11 +57,6 @@
         "type": "boolean",
         "default": true
       },
-      "disableAutoSearchMemory": {
-        "type": "boolean",
-        "description": "Disable the automatic /search/memory call on before_agent_start",
-        "default": false
-      },
       "recallGlobal": {
         "type": "boolean",
         "default": true
@@ -69,11 +64,6 @@
       "addEnabled": {
         "type": "boolean",
         "default": true
-      },
-      "disableAutoAddMessage": {
-        "type": "boolean",
-        "description": "Disable the automatic /add/message call on agent_end",
-        "default": false
       },
       "captureStrategy": {
         "type": "string",
