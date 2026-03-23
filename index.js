@@ -9,7 +9,7 @@ import {
   stripOpenClawInjectedPrefix,
 } from "./lib/memos-cloud-api.js";
 import { startUpdateChecker } from "./lib/check-update.js";
-import { closeConfigUiService, ensureConfigUiService } from "./lib/config-ui-server.js";
+import { closeConfigUiService, ensureConfigUiService, waitForGatewayReady } from "./lib/config-ui-server.js";
 let lastCaptureTime = 0;
 const conversationCounters = new Map();
 const API_KEY_HELP_URL = "https://memos-dashboard.openmem.net/cn/apikeys/";
@@ -392,10 +392,15 @@ export default {
   register(api) {
     const cfg = buildConfig(api.pluginConfig);
     const log = api.logger ?? console;
+    let configUiStartupCancelled = false;
 
     // Start 12-hour background update interval
     startUpdateChecker(log);
-    void ensureConfigUiService(log).catch((error) => {
+    void (async () => {
+      const ready = await waitForGatewayReady(api.config, log);
+      if (!ready || configUiStartupCancelled) return;
+      await ensureConfigUiService(log);
+    })().catch((error) => {
       log.warn?.(`[memos-cloud] config UI failed to start: ${String(error)}`);
     });
 
@@ -480,6 +485,7 @@ export default {
     });
 
     return () => {
+      configUiStartupCancelled = true;
       void closeConfigUiService();
     };
   },
