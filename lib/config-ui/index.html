@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>MemOS Plugin Config</title>
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <link rel="stylesheet" href="/app.css" />
   </head>
   <body>
@@ -12,7 +13,10 @@
         <div class="hero-grid">
           <div>
             <div class="hero-top">
-              <span class="eyebrow" id="eyebrowText">MemOS Plugin Config UI</span>
+              <span class="eyebrow" id="eyebrowText">
+                <img class="eyebrow-icon" src="/icon.svg" alt="" aria-hidden="true" />
+                <span>MemOS Plugin Config UI</span>
+              </span>
               <div class="lang-switch">
                 <span class="lang-label" id="langLabel">Language</span>
                 <div class="lang-dropdown" id="languageDropdown">
@@ -34,7 +38,10 @@
                 </div>
               </div>
             </div>
-            <h1 id="heroTitle">MemOS Cloud OpenClaw Plugin Config</h1>
+            <div class="hero-title-row">
+              <img class="hero-logo" src="/icon.svg" alt="MemOS Cloud OpenClaw Plugin icon" />
+              <h1 id="heroTitle">MemOS Cloud OpenClaw Plugin Config</h1>
+            </div>
             <p class="subtitle" id="heroSubtitle">
               This page reads and writes <code>plugins.entries.__PLUGIN_ID__.config</code> from the active gateway
               config file, keeps the form in sync with on-disk changes, and restarts the gateway after save.

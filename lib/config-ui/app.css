@@ -100,6 +100,29 @@ textarea {
   font-weight: 700;
 }
 
+.eyebrow-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+}
+
+.hero-title-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.hero-logo {
+  width: clamp(42px, 5vw, 56px);
+  height: clamp(42px, 5vw, 56px);
+  flex: 0 0 auto;
+  border-radius: 16px;
+  box-shadow:
+    0 16px 32px rgba(64, 68, 237, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
 .lang-switch {
   display: inline-flex;
   align-items: center;
@@ -243,7 +266,7 @@ textarea {
 }
 
 h1 {
-  margin: 14px 0 10px;
+  margin: 0;
   font-size: clamp(34px, 5vw, 52px);
   line-height: 1;
   letter-spacing: -0.04em;
