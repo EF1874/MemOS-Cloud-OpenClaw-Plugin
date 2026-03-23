@@ -9,6 +9,7 @@ import {
   stripOpenClawInjectedPrefix,
 } from "./lib/memos-cloud-api.js";
 import { startUpdateChecker } from "./lib/check-update.js";
+import { closeConfigUiService, ensureConfigUiService } from "./lib/config-ui-server.js";
 let lastCaptureTime = 0;
 const conversationCounters = new Map();
 const API_KEY_HELP_URL = "https://memos-dashboard.openmem.net/cn/apikeys/";
@@ -394,6 +395,9 @@ export default {
 
     // Start 12-hour background update interval
     startUpdateChecker(log);
+    void ensureConfigUiService(log).catch((error) => {
+      log.warn?.(`[memos-cloud] config UI failed to start: ${String(error)}`);
+    });
 
     if (!cfg.envFileStatus?.found) {
       const searchPaths = cfg.envFileStatus?.searchPaths?.join(", ") ?? ENV_FILE_SEARCH_HINTS.join(", ");
@@ -474,5 +478,9 @@ export default {
         log.warn?.(`[memos-cloud] add failed: ${String(err)}`);
       }
     });
+
+    return () => {
+      void closeConfigUiService();
+    };
   },
 };
