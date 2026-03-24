@@ -89,7 +89,7 @@
       },
       "memoryLimitNumber": {
         "type": "integer",
-        "default": 6
+        "default": 9
       },
       "preferenceLimitNumber": {
         "type": "integer",
@@ -106,6 +106,11 @@
       "toolMemoryLimitNumber": {
         "type": "integer",
         "default": 6
+      },
+      "relativity": {
+        "type": "number",
+        "description": "Minimum relativity score required before a recalled item is injected",
+        "default": 0.45
       },
       "filter": {
         "type": "object",
@@ -148,6 +153,42 @@
         }
       },
       "asyncMode": {
+        "type": "boolean",
+        "default": true
+      },
+      "recallFilterEnabled": {
+        "type": "boolean",
+        "default": false
+      },
+      "recallFilterBaseUrl": {
+        "type": "string",
+        "description": "OpenAI-compatible base URL used for recall filtering"
+      },
+      "recallFilterApiKey": {
+        "type": "string",
+        "description": "Optional bearer token for the recall filter endpoint"
+      },
+      "recallFilterModel": {
+        "type": "string",
+        "description": "Model name used for recall filtering"
+      },
+      "recallFilterTimeoutMs": {
+        "type": "integer",
+        "default": 6000
+      },
+      "recallFilterRetries": {
+        "type": "integer",
+        "default": 0
+      },
+      "recallFilterCandidateLimit": {
+        "type": "integer",
+        "default": 30
+      },
+      "recallFilterMaxItemChars": {
+        "type": "integer",
+        "default": 500
+      },
+      "recallFilterFailOpen": {
         "type": "boolean",
         "default": true
       },
