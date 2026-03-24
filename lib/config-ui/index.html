@@ -77,16 +77,18 @@
         </div>
       </section>
       <main class="layout" id="layout"></main>
-    </div>
-
-    <aside class="floating-tools" id="floatingTools">
-      <div class="floating-nav-card">
-        <div class="floating-nav-head">
-          <span id="floatingNavLabel">Sections</span>
+      <aside class="floating-tools" id="floatingTools">
+        <div class="floating-nav-card">
+          <div class="floating-nav-head">
+            <span id="floatingNavLabel">Sections</span>
+            <button class="floating-toggle" id="floatingToggleButton" type="button" aria-expanded="true" aria-controls="floatingNav" title="Collapse Navigation">
+              <span class="floating-toggle-icon" aria-hidden="true">⇤</span>
+            </button>
+          </div>
+          <div class="floating-nav" id="floatingNav"></div>
         </div>
-        <div class="floating-nav" id="floatingNav"></div>
-      </div>
-    </aside>
+      </aside>
+    </div>
 
     <button class="back-top-button" id="backTopButton" type="button" aria-label="Back To Top" title="Back To Top">
       <span aria-hidden="true">↑</span>
