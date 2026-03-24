@@ -44,7 +44,7 @@ Make sure it’s enabled in `~/.openclaw/openclaw.json`:
     },
     "load": {
       "paths": [
-        "C:\\Users\\YourName\\.openclaw\\extensions\\memos-cloud-openclaw-plugin\\package"
+        "C:\\Users\\YourName\\.openclaw\\extensions\\memos-cloud-openclaw-plugin"
       ]
     }
   }
@@ -101,11 +101,16 @@ MEMOS_API_KEY=YOUR_TOKEN
 - `MEMOS_RECALL_FILTER_BASE_URL` (OpenAI-compatible base URL, e.g. `http://127.0.0.1:11434/v1`)
 - `MEMOS_RECALL_FILTER_API_KEY` (optional; required if your endpoint needs auth)
 - `MEMOS_RECALL_FILTER_MODEL` (model name used to filter recall candidates)
-- `MEMOS_RECALL_FILTER_TIMEOUT_MS` (default: `6000`)
-- `MEMOS_RECALL_FILTER_RETRIES` (default: `0`)
+- `MEMOS_RECALL_FILTER_TIMEOUT_MS` (default: `30000`)
+- `MEMOS_RECALL_FILTER_RETRIES` (default: `1`)
 - `MEMOS_RECALL_FILTER_CANDIDATE_LIMIT` (default: `30` per category)
 - `MEMOS_RECALL_FILTER_MAX_ITEM_CHARS` (default: `500`)
 - `MEMOS_RECALL_FILTER_FAIL_OPEN` (default: `true`; fallback to unfiltered recall on failure)
+- `MEMOS_CAPTURE_STRATEGY` (default: `last_turn`)
+- `MEMOS_ASYNC_MODE` (default: `true`; non-blocking memory addition)
+- `MEMOS_THROTTLE_MS` (default: `0`; throttle memory requests)
+- `MEMOS_INCLUDE_ASSISTANT` (default: `true`; include assistant messages in memory)
+- `MEMOS_MAX_MESSAGE_CHARS` (default: `20000`; max characters for message history)
 
 ## Optional Plugin Config
 In `plugins.entries.memos-cloud-openclaw-plugin.config`:
@@ -141,11 +146,13 @@ In `plugins.entries.memos-cloud-openclaw-plugin.config`:
   "recallFilterBaseUrl": "http://127.0.0.1:11434/v1",
   "recallFilterApiKey": "",
   "recallFilterModel": "qwen2.5:7b",
-  "recallFilterTimeoutMs": 6000,
-  "recallFilterRetries": 0,
+  "recallFilterTimeoutMs": 30000,
+  "recallFilterRetries": 1,
   "recallFilterCandidateLimit": 30,
   "recallFilterMaxItemChars": 500,
-  "recallFilterFailOpen": true
+  "recallFilterFailOpen": true,
+  "throttleMs": 0,
+  "maxMessageChars": 20000
 }
 ```
 
