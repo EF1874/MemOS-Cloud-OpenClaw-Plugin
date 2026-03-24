@@ -103,8 +103,8 @@ MEMOS_API_KEY=YOUR_TOKEN
 - `MEMOS_RECALL_FILTER_BASE_URL`（OpenAI 兼容接口，例如 `http://127.0.0.1:11434/v1`）
 - `MEMOS_RECALL_FILTER_API_KEY`（可选，若你的接口需要鉴权）
 - `MEMOS_RECALL_FILTER_MODEL`（用于筛选记忆的模型名）
-- `MEMOS_RECALL_FILTER_TIMEOUT_MS`（默认 `6000`）
-- `MEMOS_RECALL_FILTER_RETRIES`（默认 `0`）
+- `MEMOS_RECALL_FILTER_TIMEOUT_MS`（默认 `30000`）
+- `MEMOS_RECALL_FILTER_RETRIES`（默认 `1`）
 - `MEMOS_RECALL_FILTER_CANDIDATE_LIMIT`（默认每类 `30` 条）
 - `MEMOS_RECALL_FILTER_MAX_ITEM_CHARS`（默认 `500`）
 - `MEMOS_RECALL_FILTER_FAIL_OPEN`（默认 `true`；筛选失败时回退为“不过滤”）
@@ -146,8 +146,8 @@ MEMOS_API_KEY=YOUR_TOKEN
   "recallFilterBaseUrl": "http://127.0.0.1:11434/v1",
   "recallFilterApiKey": "",
   "recallFilterModel": "qwen2.5:7b",
-  "recallFilterTimeoutMs": 6000,
-  "recallFilterRetries": 0,
+  "recallFilterTimeoutMs": 30000,
+  "recallFilterRetries": 1,
   "recallFilterCandidateLimit": 30,
   "recallFilterMaxItemChars": 500,
   "recallFilterFailOpen": true,

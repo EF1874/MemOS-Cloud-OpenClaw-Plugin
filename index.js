@@ -341,20 +341,20 @@ async function callRecallFilterModel(cfg, userPrompt, candidatePayload) {
   };
 
   let lastError;
-  const retries = Number.isFinite(cfg.recallFilterRetries) ? Math.max(0, cfg.recallFilterRetries) : 0;
-  const timeoutMs = Number.isFinite(cfg.recallFilterTimeoutMs) ? Math.max(1000, cfg.recallFilterTimeoutMs) : 6000;
+  const retries = Number.isFinite(cfg.recallFilterRetries) ? Math.max(0, cfg.recallFilterRetries) : 1;
+  const timeoutMs = Number.isFinite(cfg.recallFilterTimeoutMs) ? Math.max(1000, cfg.recallFilterTimeoutMs) : 30000;
 
   for (let attempt = 0; attempt <= retries; attempt += 1) {
+    let timeoutId;
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      timeoutId = setTimeout(() => controller.abort(), timeoutMs);
       const res = await fetch(`${cfg.recallFilterBaseUrl}/chat/completions`, {
         method: "POST",
         headers,
         body: JSON.stringify(body),
         signal: controller.signal,
       });
-      clearTimeout(timeoutId);
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
@@ -366,10 +366,17 @@ async function callRecallFilterModel(cfg, userPrompt, candidatePayload) {
       }
       return parsed;
     } catch (err) {
-      lastError = err;
+      const isAbort = err?.name === "AbortError" || /aborted/i.test(String(err?.message ?? err));
+      lastError = isAbort
+        ? new Error(
+            `timed out after ${timeoutMs}ms (raise recallFilterTimeoutMs; local LLMs often need 30s+ on cold start)`,
+          )
+        : err;
       if (attempt < retries) {
         await sleep(120 * (attempt + 1));
       }
+    } finally {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
     }
   }
   throw lastError;
@@ -390,7 +397,13 @@ async function maybeFilterRecallData(cfg, data, userPrompt, log) {
 
   try {
     const decision = await callRecallFilterModel(cfg, userPrompt, lists.candidatePayload);
-    return applyRecallDecision(data, decision, lists);
+    const filtered = applyRecallDecision(data, decision, lists);
+    log.info?.(
+      `[memos-cloud] recall filter applied: memory ${lists.memoryList.length}->${filtered.memory_detail_list?.length ?? 0}, ` +
+        `preference ${lists.preferenceList.length}->${filtered.preference_detail_list?.length ?? 0}, ` +
+        `tool_memory ${lists.toolList.length}->${filtered.tool_memory_detail_list?.length ?? 0}`,
+    );
+    return filtered;
   } catch (err) {
     log.warn?.(`[memos-cloud] recall filter failed: ${String(err)}`);
     return cfg.recallFilterFailOpen ? data : { ...data, memory_detail_list: [], preference_detail_list: [], tool_memory_detail_list: [] };
