@@ -6,6 +6,7 @@ import {
   extractText,
   formatRecallHookResult,
   isAgentAllowed,
+  resolveAgentConfig,
   searchMemory,
   stripOpenClawInjectedPrefix,
 } from "./lib/memos-cloud-api.js";
@@ -109,6 +110,8 @@ function buildSearchPayload(cfg, prompt, ctx) {
   payload.preference_limit_number = cfg.preferenceLimitNumber;
   payload.include_tool_memory = cfg.includeToolMemory;
   payload.tool_memory_limit_number = cfg.toolMemoryLimitNumber;
+  payload.include_skill = cfg.includeSkill;
+  payload.skill_limit_number = cfg.skillLimitNumber;
   payload.relativity = cfg.relativity;
 
   return payload;
@@ -418,6 +421,11 @@ export default {
       log.info?.(`[memos-cloud] Multi-agent mode enabled. Allowed agents: [${cfg.allowedAgents.join(", ")}]`);
     }
 
+    const overrideAgentIds = Object.keys(cfg._agentOverrides || {});
+    if (overrideAgentIds.length > 0) {
+      log.info?.(`[memos-cloud] Per-agent overrides configured for: [${overrideAgentIds.join(", ")}]`);
+    }
+
     if (cfg.conversationSuffixMode === "counter" && cfg.resetOnNew) {
       if (api.config?.hooks?.internal?.enabled !== true) {
         log.warn?.("[memos-cloud] command:new hook requires hooks.internal.enabled = true");
@@ -437,29 +445,29 @@ export default {
     }
 
     api.on("before_agent_start", async (event, ctx) => {
-      if (!cfg.recallEnabled) return;
-      const userPrompt = stripOpenClawInjectedPrefix(event?.prompt || "");
-      if (!userPrompt || userPrompt.length < 3) return;
       if (!isAgentAllowed(cfg, ctx)) {
         log.info?.(`[memos-cloud] recall skipped: agent "${ctx?.agentId}" not in allowedAgents [${cfg.allowedAgents?.join(", ")}]`);
         return;
       }
-      if (!event?.prompt || event.prompt.length < 3) return;
-      if (!cfg.apiKey) {
+      const agentCfg = resolveAgentConfig(cfg, ctx?.agentId);
+      if (!agentCfg.recallEnabled) return;
+      const userPrompt = stripOpenClawInjectedPrefix(event?.prompt || "");
+      if (!userPrompt || userPrompt.length < 3) return;
+      if (!agentCfg.apiKey) {
         warnMissingApiKey(log, "recall");
         return;
       }
 
       try {
-        const payload = buildSearchPayload(cfg, userPrompt, ctx);
-        const result = await searchMemory(cfg, payload);
+        const payload = buildSearchPayload(agentCfg, userPrompt, ctx);
+        const result = await searchMemory(agentCfg, payload);
         const resultData = extractResultData(result);
         if (!resultData) return;
-        const filteredData = await maybeFilterRecallData(cfg, resultData, userPrompt, log);
+        const filteredData = await maybeFilterRecallData(agentCfg, resultData, userPrompt, log);
         const hookResult = formatRecallHookResult({ data: filteredData }, {
           wrapTagBlocks: true,
           relativity: payload.relativity,
-          maxItemChars: cfg.maxItemChars,
+          maxItemChars: agentCfg.maxItemChars,
         });
         if (!hookResult.appendSystemContext && !hookResult.prependContext) return;
 
@@ -470,33 +478,34 @@ export default {
     });
 
     api.on("agent_end", async (event, ctx) => {
-      if (!cfg.addEnabled) return;
       if (!isAgentAllowed(cfg, ctx)) {
         log.info?.(`[memos-cloud] add skipped: agent "${ctx?.agentId}" not in allowedAgents [${cfg.allowedAgents?.join(", ")}]`);
         return;
       }
+      const agentCfg = resolveAgentConfig(cfg, ctx?.agentId);
+      if (!agentCfg.addEnabled) return;
       if (!event?.success || !event?.messages?.length) return;
-      if (!cfg.apiKey) {
+      if (!agentCfg.apiKey) {
         warnMissingApiKey(log, "add");
         return;
       }
 
       const now = Date.now();
-      if (cfg.throttleMs && now - lastCaptureTime < cfg.throttleMs) {
+      if (agentCfg.throttleMs && now - lastCaptureTime < agentCfg.throttleMs) {
         return;
       }
       lastCaptureTime = now;
 
       try {
         const messages =
-          cfg.captureStrategy === "full_session"
-            ? pickFullSessionMessages(event.messages, cfg)
-            : pickLastTurnMessages(event.messages, cfg);
+          agentCfg.captureStrategy === "full_session"
+            ? pickFullSessionMessages(event.messages, agentCfg)
+            : pickLastTurnMessages(event.messages, agentCfg);
 
         if (!messages.length) return;
 
-        const payload = buildAddMessagePayload(cfg, messages, ctx);
-        await addMessage(cfg, payload);
+        const payload = buildAddMessagePayload(agentCfg, messages, ctx);
+        await addMessage(agentCfg, payload);
       } catch (err) {
         log.warn?.(`[memos-cloud] add failed: ${String(err)}`);
       }
