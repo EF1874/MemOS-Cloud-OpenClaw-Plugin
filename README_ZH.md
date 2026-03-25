@@ -139,6 +139,8 @@ MEMOS_API_KEY=YOUR_TOKEN
   "includePreference": true,
   "includeToolMemory": false,
   "toolMemoryLimitNumber": 6,
+  "includeSkill": false,
+  "skillLimitNumber": 6,
   "tags": ["openclaw"],
   "agentId": "",
   "multiAgentMode": false,
@@ -219,6 +221,83 @@ MEMOS_ALLOWED_AGENTS="agent1,agent2"
 | `MEMOS_MULTI_AGENT_MODE=false` | 白名单不生效，所有请求按单 Agent 模式处理 |
 
 > **注意**：白名单仅在 `multiAgentMode=true` 时生效。关闭多 Agent 模式时，所有 Agent 的记忆功能均正常工作，白名单配置被忽略。
+
+### 按 Agent 独立配置参数（agentOverrides）
+
+除了按 Agent 开关记忆功能外，你还可以通过 `agentOverrides` 为**每个 Agent 配置不同的记忆参数**，包括知识库、召回条数、相关性阈值等。
+
+**插件配置**（在 `openclaw.json` 中设置）：
+```json
+{
+  "plugins": {
+    "entries": {
+      "memos-cloud-openclaw-plugin": {
+        "enabled": true,
+        "config": {
+          "multiAgentMode": true,
+          "allowedAgents": ["default", "research-agent", "coding-agent"],
+          "knowledgebaseIds": [],
+          "memoryLimitNumber": 6,
+          "relativity": 0.45,
+
+          "agentOverrides": {
+            "research-agent": {
+              "knowledgebaseIds": ["kb-research-papers", "kb-academic"],
+              "memoryLimitNumber": 12,
+              "relativity": 0.3,
+              "includeToolMemory": true,
+              "captureStrategy": "full_session",
+              "queryPrefix": "research context: "
+            },
+            "coding-agent": {
+              "knowledgebaseIds": ["kb-codebase", "kb-api-docs"],
+              "memoryLimitNumber": 9,
+              "relativity": 0.5,
+              "addEnabled": false
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+**工作原理**：
+- `agentOverrides.<agentId>` 中的字段会覆盖该 Agent 对应的全局默认值
+- 只需写需要覆盖的字段，其余参数从全局配置继承
+- 若某个 Agent 没有对应的 override 条目，则完全使用全局配置
+
+**可覆盖字段**：
+
+| 字段 | 说明 |
+|------|------|
+| `knowledgebaseIds` | `/search/memory` 使用的知识库 ID 列表 |
+| `memoryLimitNumber` | 召回的事实记忆最大条数 |
+| `preferenceLimitNumber` | 召回的偏好记忆最大条数 |
+| `includePreference` | 是否启用偏好记忆召回 |
+| `includeToolMemory` | 是否启用工具记忆召回 |
+| `toolMemoryLimitNumber` | 工具记忆最大条数 |
+| `includeSkill` | 是否启用技能召回 |
+| `skillLimitNumber` | 技能最大条数 |
+| `relativity` | 相关性阈值（0-1） |
+| `filter` | 搜索过滤条件对象 |
+| `recallEnabled` | 该 Agent 是否启用记忆检索 |
+| `addEnabled` | 该 Agent 是否启用记忆写入 |
+| `captureStrategy` | `last_turn` 或 `full_session` |
+| `queryPrefix` | 搜索查询前缀 |
+| `maxQueryChars` | 查询最大字符数 |
+| `maxItemChars` | 注入 prompt 时每条记忆的最大字符数 |
+| `maxMessageChars` | 写入记忆时每条消息的最大字符数 |
+| `includeAssistant` | 写入记忆时是否包含助手回复 |
+| `recallGlobal` | 全局召回（不传 conversation_id） |
+| `recallFilterEnabled` | 是否启用模型二次过滤 |
+| `recallFilterModel` | 过滤模型名 |
+| `recallFilterBaseUrl` | 过滤模型接口地址 |
+| `recallFilterApiKey` | 过滤模型鉴权密钥 |
+| `allowKnowledgebaseIds` | `/add/message` 允许写入的知识库 |
+| `tags` | `/add/message` 标签 |
+| `throttleMs` | 请求节流间隔 |
 
 ## 说明
 - 未显式指定 `conversation_id` 时，默认使用 OpenClaw `sessionKey`。**TODO**：后续考虑直接绑定 OpenClaw `sessionId`。

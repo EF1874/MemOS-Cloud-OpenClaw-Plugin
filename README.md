@@ -138,6 +138,8 @@ In `plugins.entries.memos-cloud-openclaw-plugin.config`:
   "includePreference": true,
   "includeToolMemory": false,
   "toolMemoryLimitNumber": 6,
+  "includeSkill": false,
+  "skillLimitNumber": 6,
   "relativity": 0.45,
   "tags": ["openclaw"],
   "agentId": "",
@@ -214,6 +216,83 @@ Separate multiple agent IDs with commas.
 | `MEMOS_MULTI_AGENT_MODE=false` | Allowlist has no effect; all requests use single-agent mode |
 
 > **Note**: The allowlist only takes effect when `multiAgentMode=true`. When multi-agent mode is off, memory works for all agents and the allowlist is ignored.
+
+### Per-Agent Configuration (agentOverrides)
+
+Beyond simple on/off toggles, you can configure **different memory parameters for each agent** using `agentOverrides`. Each agent can have its own knowledge base, recall limits, relativity threshold, and more.
+
+**Plugin config** (in `openclaw.json`):
+```json
+{
+  "plugins": {
+    "entries": {
+      "memos-cloud-openclaw-plugin": {
+        "enabled": true,
+        "config": {
+          "multiAgentMode": true,
+          "allowedAgents": ["default", "research-agent", "coding-agent"],
+          "knowledgebaseIds": [],
+          "memoryLimitNumber": 6,
+          "relativity": 0.45,
+
+          "agentOverrides": {
+            "research-agent": {
+              "knowledgebaseIds": ["kb-research-papers", "kb-academic"],
+              "memoryLimitNumber": 12,
+              "relativity": 0.3,
+              "includeToolMemory": true,
+              "captureStrategy": "full_session",
+              "queryPrefix": "research context: "
+            },
+            "coding-agent": {
+              "knowledgebaseIds": ["kb-codebase", "kb-api-docs"],
+              "memoryLimitNumber": 9,
+              "relativity": 0.5,
+              "addEnabled": false
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+**How it works**:
+- Fields in `agentOverrides.<agentId>` override the global defaults for that specific agent.
+- Only the fields you specify are overridden; all other parameters inherit from the global config.
+- If no override exists for an agent, it uses the global config as-is.
+
+**Overridable fields**:
+
+| Field | Description |
+|-------|-------------|
+| `knowledgebaseIds` | Knowledge base IDs for `/search/memory` |
+| `memoryLimitNumber` | Max memory items to recall |
+| `preferenceLimitNumber` | Max preference items to recall |
+| `includePreference` | Enable preference recall |
+| `includeToolMemory` | Enable tool memory recall |
+| `toolMemoryLimitNumber` | Max tool memory items |
+| `includeSkill` | Enable skill recall |
+| `skillLimitNumber` | Max skill items |
+| `relativity` | Relevance threshold (0-1) |
+| `filter` | Search filter object |
+| `recallEnabled` | Enable/disable recall for this agent |
+| `addEnabled` | Enable/disable memory capture for this agent |
+| `captureStrategy` | `last_turn` or `full_session` |
+| `queryPrefix` | Prefix for search queries |
+| `maxQueryChars` | Max query length |
+| `maxItemChars` | Max chars per memory item in prompt |
+| `maxMessageChars` | Max chars per message when adding |
+| `includeAssistant` | Include assistant messages in capture |
+| `recallGlobal` | Global recall (skip conversation_id) |
+| `recallFilterEnabled` | Enable model-based recall filtering |
+| `recallFilterModel` | Model for recall filtering |
+| `recallFilterBaseUrl` | Base URL for recall filter model |
+| `recallFilterApiKey` | API key for recall filter |
+| `allowKnowledgebaseIds` | Knowledge bases for `/add/message` |
+| `tags` | Tags for `/add/message` |
+| `throttleMs` | Throttle interval |
 
 ## Notes
 - `conversation_id` defaults to OpenClaw `sessionKey` (unless `conversationId` is provided). **TODO**: consider binding to OpenClaw `sessionId` directly.
