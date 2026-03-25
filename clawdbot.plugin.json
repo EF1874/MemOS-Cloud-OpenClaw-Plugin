@@ -107,16 +107,6 @@
         "type": "integer",
         "default": 6
       },
-      "includeSkill": {
-        "type": "boolean",
-        "description": "Enable skill recall in search",
-        "default": false
-      },
-      "skillLimitNumber": {
-        "type": "integer",
-        "description": "Max number of skills to recall",
-        "default": 6
-      },
       "filter": {
         "type": "object",
         "description": "MemOS search filter",

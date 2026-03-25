@@ -139,8 +139,6 @@ MEMOS_API_KEY=YOUR_TOKEN
   "includePreference": true,
   "includeToolMemory": false,
   "toolMemoryLimitNumber": 6,
-  "includeSkill": false,
-  "skillLimitNumber": 6,
   "tags": ["openclaw"],
   "agentId": "",
   "multiAgentMode": false,
@@ -278,15 +276,11 @@ MEMOS_ALLOWED_AGENTS="agent1,agent2"
 | `includePreference` | 是否启用偏好记忆召回 |
 | `includeToolMemory` | 是否启用工具记忆召回 |
 | `toolMemoryLimitNumber` | 工具记忆最大条数 |
-| `includeSkill` | 是否启用技能召回 |
-| `skillLimitNumber` | 技能最大条数 |
 | `relativity` | 相关性阈值（0-1） |
-| `filter` | 搜索过滤条件对象 |
 | `recallEnabled` | 该 Agent 是否启用记忆检索 |
 | `addEnabled` | 该 Agent 是否启用记忆写入 |
 | `captureStrategy` | `last_turn` 或 `full_session` |
 | `queryPrefix` | 搜索查询前缀 |
-| `maxQueryChars` | 查询最大字符数 |
 | `maxItemChars` | 注入 prompt 时每条记忆的最大字符数 |
 | `maxMessageChars` | 写入记忆时每条消息的最大字符数 |
 | `includeAssistant` | 写入记忆时是否包含助手回复 |
