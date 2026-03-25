@@ -55,6 +55,21 @@ function getEffectiveAgentId(cfg, ctx) {
   return agentId === "main" ? undefined : agentId;
 }
 
+export function extractDirectSessionUserId(sessionKey) {
+  if (!sessionKey || typeof sessionKey !== "string") return "";
+  const parts = sessionKey.split(":");
+  const directIndex = parts.lastIndexOf("direct");
+  if (directIndex === -1) return "";
+  return parts[directIndex + 1] || "";
+}
+
+export function resolveMemosUserId(cfg, ctx) {
+  const fallback = cfg?.userId || "openclaw-user";
+  if (!cfg?.useDirectSessionUserId) return fallback;
+  const directUserId = extractDirectSessionUserId(ctx?.sessionKey);
+  return directUserId || fallback;
+}
+
 function resolveConversationId(cfg, ctx) {
   if (cfg.conversationId) return cfg.conversationId;
   // TODO: consider binding conversation_id directly to OpenClaw sessionId (prefer ctx.sessionId).
@@ -67,7 +82,7 @@ function resolveConversationId(cfg, ctx) {
   return `${prefix}openclaw-${Date.now()}${dynamicSuffix}${suffix}`;
 }
 
-function buildSearchPayload(cfg, prompt, ctx) {
+export function buildSearchPayload(cfg, prompt, ctx) {
   const cleanPrompt = stripOpenClawInjectedPrefix(prompt);
   const queryRaw = `${cfg.queryPrefix || ""}${cleanPrompt}`;
   const query =
@@ -76,7 +91,7 @@ function buildSearchPayload(cfg, prompt, ctx) {
       : queryRaw;
 
   const payload = {
-    user_id: cfg.userId,
+    user_id: resolveMemosUserId(cfg, ctx),
     query,
     source: MEMOS_SOURCE,
   };
@@ -115,9 +130,9 @@ function buildSearchPayload(cfg, prompt, ctx) {
   return payload;
 }
 
-function buildAddMessagePayload(cfg, messages, ctx) {
+export function buildAddMessagePayload(cfg, messages, ctx) {
   const payload = {
-    user_id: cfg.userId,
+    user_id: resolveMemosUserId(cfg, ctx),
     conversation_id: resolveConversationId(cfg, ctx),
     messages,
     source: MEMOS_SOURCE,
