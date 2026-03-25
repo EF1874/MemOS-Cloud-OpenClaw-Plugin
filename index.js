@@ -110,8 +110,6 @@ function buildSearchPayload(cfg, prompt, ctx) {
   payload.preference_limit_number = cfg.preferenceLimitNumber;
   payload.include_tool_memory = cfg.includeToolMemory;
   payload.tool_memory_limit_number = cfg.toolMemoryLimitNumber;
-  payload.include_skill = cfg.includeSkill;
-  payload.skill_limit_number = cfg.skillLimitNumber;
   payload.relativity = cfg.relativity;
 
   return payload;
