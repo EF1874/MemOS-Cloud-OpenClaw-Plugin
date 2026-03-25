@@ -107,6 +107,16 @@
         "type": "integer",
         "default": 6
       },
+      "includeSkill": {
+        "type": "boolean",
+        "description": "Enable skill recall in search",
+        "default": false
+      },
+      "skillLimitNumber": {
+        "type": "integer",
+        "description": "Max number of skills to recall",
+        "default": 6
+      },
       "filter": {
         "type": "object",
         "description": "MemOS search filter",
@@ -209,6 +219,57 @@
       "throttleMs": {
         "type": "integer",
         "default": 0
+      },
+      "agentOverrides": {
+        "type": "object",
+        "description": "Per-agent config overrides. Keys are agent IDs, values override global defaults for that agent.",
+        "additionalProperties": {
+          "type": "object",
+          "properties": {
+            "knowledgebaseIds": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "memoryLimitNumber": { "type": "integer" },
+            "preferenceLimitNumber": { "type": "integer" },
+            "includePreference": { "type": "boolean" },
+            "includeToolMemory": { "type": "boolean" },
+            "toolMemoryLimitNumber": { "type": "integer" },
+            "includeSkill": { "type": "boolean" },
+            "skillLimitNumber": { "type": "integer" },
+            "relativity": { "type": "number" },
+            "filter": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "recallEnabled": { "type": "boolean" },
+            "addEnabled": { "type": "boolean" },
+            "captureStrategy": {
+              "type": "string",
+              "enum": ["last_turn", "full_session"]
+            },
+            "queryPrefix": { "type": "string" },
+            "maxQueryChars": { "type": "integer" },
+            "maxItemChars": { "type": "integer" },
+            "maxMessageChars": { "type": "integer" },
+            "includeAssistant": { "type": "boolean" },
+            "recallGlobal": { "type": "boolean" },
+            "recallFilterEnabled": { "type": "boolean" },
+            "recallFilterModel": { "type": "string" },
+            "recallFilterBaseUrl": { "type": "string" },
+            "recallFilterApiKey": { "type": "string" },
+            "allowKnowledgebaseIds": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "tags": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "throttleMs": { "type": "integer" }
+          },
+          "additionalProperties": false
+        }
       }
     },
     "additionalProperties": false
