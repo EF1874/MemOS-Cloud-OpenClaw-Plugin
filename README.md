@@ -138,8 +138,6 @@ In `plugins.entries.memos-cloud-openclaw-plugin.config`:
   "includePreference": true,
   "includeToolMemory": false,
   "toolMemoryLimitNumber": 6,
-  "includeSkill": false,
-  "skillLimitNumber": 6,
   "relativity": 0.45,
   "tags": ["openclaw"],
   "agentId": "",
@@ -273,15 +271,11 @@ Beyond simple on/off toggles, you can configure **different memory parameters fo
 | `includePreference` | Enable preference recall |
 | `includeToolMemory` | Enable tool memory recall |
 | `toolMemoryLimitNumber` | Max tool memory items |
-| `includeSkill` | Enable skill recall |
-| `skillLimitNumber` | Max skill items |
 | `relativity` | Relevance threshold (0-1) |
-| `filter` | Search filter object |
 | `recallEnabled` | Enable/disable recall for this agent |
 | `addEnabled` | Enable/disable memory capture for this agent |
 | `captureStrategy` | `last_turn` or `full_session` |
 | `queryPrefix` | Prefix for search queries |
-| `maxQueryChars` | Max query length |
 | `maxItemChars` | Max chars per memory item in prompt |
 | `maxMessageChars` | Max chars per message when adding |
 | `includeAssistant` | Include assistant messages in capture |
