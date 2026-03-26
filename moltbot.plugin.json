@@ -46,6 +46,11 @@
         "description": "When enabled, direct-session keys like agent:main:<provider>:direct:<id> use the direct id as MemOS user_id instead of the default configured userId.",
         "default": false
       },
+      "useMemosUserIdTag": {
+        "type": "boolean",
+        "description": "When enabled, the first <memos_userid>...</memos_userid> tag found in user text overrides MemOS user_id for search/add and is stripped from the payload sent to MemOS.",
+        "default": false
+      },
       "resetOnNew": {
         "type": "boolean",
         "default": true
