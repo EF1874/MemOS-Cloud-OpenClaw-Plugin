@@ -57,7 +57,8 @@ openclaw gateway restart
 修改配置后需要重启 gateway。
 
 ## 环境变量
-插件按顺序读取 env 文件（**openclaw → moltbot → clawdbot**），每个键优先使用最先匹配到的值。
+插件运行时配置的优先级是：**插件 config → env 文件 → 进程环境变量**。
+在 env 文件层，按顺序读取（**openclaw → moltbot → clawdbot**），每个键优先使用最先匹配到的值。
 若三个文件都不存在（或该键未找到），才会回退到进程环境变量。
 
 **配置位置**
@@ -93,6 +94,7 @@ MEMOS_API_KEY=YOUR_TOKEN
 - `MEMOS_BASE_URL`（默认 `https://memos.memtensor.cn/api/openmem/v1`）
 - `MEMOS_API_KEY`（必填，Token 认证）—— 获取地址：https://memos-dashboard.openmem.net/cn/apikeys/
 - `MEMOS_USER_ID`（可选，默认 `openclaw-user`）
+- `MEMOS_USE_DIRECT_SESSION_USER_ID`（默认 `false`；开启后，对 `agent:main:<provider>:direct:<peer-id>` 这类私聊 sessionKey，会把 `<peer-id>` 作为 MemOS `user_id`）
 - `MEMOS_CONVERSATION_ID`（可选覆盖）
 - `MEMOS_RECALL_GLOBAL`（默认 `true`；为 true 时检索不传 conversation_id）
 - `MEMOS_MULTI_AGENT_MODE`（默认 `false`；是否开启多 Agent 数据隔离模式）
@@ -122,6 +124,7 @@ MEMOS_API_KEY=YOUR_TOKEN
   "baseUrl": "https://memos.memtensor.cn/api/openmem/v1",
   "apiKey": "YOUR_API_KEY",
   "userId": "memos_user_123",
+  "useDirectSessionUserId": false,
   "conversationId": "openclaw-main",
   "queryPrefix": "important user context preferences decisions ",
   "recallEnabled": true,
@@ -292,6 +295,15 @@ MEMOS_ALLOWED_AGENTS="agent1,agent2"
 | `allowKnowledgebaseIds` | `/add/message` 允许写入的知识库 |
 | `tags` | `/add/message` 标签 |
 | `throttleMs` | 请求节流间隔 |
+
+## 私聊 Session User ID（Direct Session User ID）
+- **默认行为**：仍然使用配置里的 `userId`（或 `MEMOS_USER_ID`），完全兼容旧行为。
+- **开启方式**：在插件 config 中设置 `"useDirectSessionUserId": true`，或在环境变量中设置 `MEMOS_USE_DIRECT_SESSION_USER_ID=true`。
+- **行为说明**：开启后，像 `agent:main:<provider>:direct:<peer-id>` 这样的私聊 sessionKey，会把 `<peer-id>` 当作 MemOS `user_id`。
+- **不会影响的场景**：像 `agent:main:<provider>:channel:<channel-id>` 这类非私聊 sessionKey，仍继续使用配置好的 fallback `userId`。
+- **作用范围**：同一套解析逻辑同时作用于 `buildSearchPayload()` 和 `buildAddMessagePayload()`，保证 recall 与 add 一致。
+- **配置优先级**：仍遵循插件现有规则——插件 config 优先，其次是 `.env` 文件（`~/.openclaw/.env` -> `~/.moltbot/.env` -> `~/.clawdbot/.env`），最后才回退到进程环境变量。
+
 
 ## 说明
 - 未显式指定 `conversation_id` 时，默认使用 OpenClaw `sessionKey`。**TODO**：后续考虑直接绑定 OpenClaw `sessionId`。

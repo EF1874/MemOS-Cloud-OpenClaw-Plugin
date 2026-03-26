@@ -55,7 +55,8 @@ Make sure it’s enabled in `~/.openclaw/openclaw.json`:
 Restart the gateway after config changes.
 
 ## Environment Variables
-The plugin tries env files in order (**openclaw → moltbot → clawdbot**). For each key, the first file with a value wins.
+The plugin resolves runtime config in this order: **plugin config → env files → process environment**.
+Among env files, it tries them in order (**openclaw → moltbot → clawdbot**). For each key, the first file with a value wins.
 If none of these files exist (or the key is missing), it falls back to the process environment.
 
 **Where to configure**
@@ -91,6 +92,7 @@ MEMOS_API_KEY=YOUR_TOKEN
 - `MEMOS_BASE_URL` (default: `https://memos.memtensor.cn/api/openmem/v1`)
 - `MEMOS_API_KEY` (required; Token auth) — get it at https://memos-dashboard.openmem.net/cn/apikeys/
 - `MEMOS_USER_ID` (optional; default: `openclaw-user`)
+- `MEMOS_USE_DIRECT_SESSION_USER_ID` (default: `false`; when enabled, direct session keys like `agent:main:<provider>:direct:<peer-id>` use `<peer-id>` as MemOS `user_id`)
 - `MEMOS_CONVERSATION_ID` (optional override)
 - `MEMOS_RECALL_GLOBAL` (default: `true`; when true, search does **not** pass conversation_id)
 - `MEMOS_MULTI_AGENT_MODE` (default: `false`; enable multi-agent data isolation)
@@ -120,6 +122,7 @@ In `plugins.entries.memos-cloud-openclaw-plugin.config`:
   "baseUrl": "https://memos.memtensor.cn/api/openmem/v1",
   "apiKey": "YOUR_API_KEY",
   "userId": "memos_user_123",
+  "useDirectSessionUserId": false,
   "conversationId": "openclaw-main",
   "queryPrefix": "important user context preferences decisions ",
   "recallEnabled": true,
@@ -287,6 +290,15 @@ Beyond simple on/off toggles, you can configure **different memory parameters fo
 | `allowKnowledgebaseIds` | Knowledge bases for `/add/message` |
 | `tags` | Tags for `/add/message` |
 | `throttleMs` | Throttle interval |
+
+## Direct Session User ID
+- **Default behavior**: the plugin still uses the configured `userId` (or `MEMOS_USER_ID`) and stays fully backward compatible.
+- **Enable mode**: set `"useDirectSessionUserId": true` in plugin config or `MEMOS_USE_DIRECT_SESSION_USER_ID=true` in env.
+- **What it does**: when enabled, session keys like `agent:main:<provider>:direct:<peer-id>` reuse `<peer-id>` as MemOS `user_id`.
+- **What it does not do**: non-direct session keys such as `agent:main:<provider>:channel:<channel-id>` keep using the configured fallback `userId`.
+- **Request paths affected**: the same resolver is used by both `buildSearchPayload()` and `buildAddMessagePayload()`, so recall and add stay consistent.
+- **Config precedence**: runtime config still follows the same rule as the rest of the plugin - plugin config first, then `.env` files (`~/.openclaw/.env` -> `~/.moltbot/.env` -> `~/.clawdbot/.env`), then process env.
+
 
 ## Notes
 - `conversation_id` defaults to OpenClaw `sessionKey` (unless `conversationId` is provided). **TODO**: consider binding to OpenClaw `sessionId` directly.
