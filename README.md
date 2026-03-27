@@ -93,7 +93,6 @@ MEMOS_API_KEY=YOUR_TOKEN
 - `MEMOS_API_KEY` (required; Token auth) — get it at https://memos-dashboard.openmem.net/cn/apikeys/
 - `MEMOS_USER_ID` (optional; default: `openclaw-user`)
 - `MEMOS_USE_DIRECT_SESSION_USER_ID` (default: `false`; when enabled, direct session keys like `agent:main:<provider>:direct:<peer-id>` use `<peer-id>` as MemOS `user_id`)
-- `MEMOS_USE_MEMOS_USERID_TAG` (default: `false`; when enabled, the first `<memos_userid>...</memos_userid>` tag found in user text overrides MemOS `user_id` for search/add and is stripped from the payload sent to MemOS)
 - `MEMOS_CONVERSATION_ID` (optional override)
 - `MEMOS_RECALL_GLOBAL` (default: `true`; when true, search does **not** pass conversation_id)
 - `MEMOS_MULTI_AGENT_MODE` (default: `false`; enable multi-agent data isolation)
@@ -124,7 +123,6 @@ In `plugins.entries.memos-cloud-openclaw-plugin.config`:
   "apiKey": "YOUR_API_KEY",
   "userId": "memos_user_123",
   "useDirectSessionUserId": false,
-  "useMemosUserIdTag": false,
   "conversationId": "openclaw-main",
   "queryPrefix": "important user context preferences decisions ",
   "recallEnabled": true,
@@ -301,15 +299,6 @@ Beyond simple on/off toggles, you can configure **different memory parameters fo
 - **Request paths affected**: the same resolver is used by both `buildSearchPayload()` and `buildAddMessagePayload()`, so recall and add stay consistent.
 - **Config precedence**: runtime config still follows the same rule as the rest of the plugin - plugin config first, then `.env` files (`~/.openclaw/.env` -> `~/.moltbot/.env` -> `~/.clawdbot/.env`), then process env.
 
-## Memos User ID Tag Override
-- **Default behavior**: disabled; user text is not inspected for `<memos_userid>...</memos_userid>` tags.
-- **Enable mode**: set `"useMemosUserIdTag": true` in plugin config or `MEMOS_USE_MEMOS_USERID_TAG=true` in env.
-- **What it does**: when enabled, the plugin extracts the first `<memos_userid>...</memos_userid>` tag and uses the inner text as the MemOS `user_id` string for both search and add.
-- **Priority**: this override has the highest priority; if present, it wins over `useDirectSessionUserId` and the configured fallback `userId`.
-- **Payload behavior**: the tag is stripped only from the payload sent to MemOS (`/search/memory` query and `/add/message` user content).
-- **What it does not do**: it does not rewrite the original user message shown to the model; it only affects what the plugin sends to MemOS.
-- **Multiple tags**: only the first matching tag is used.
-- **Config precedence**: same as the rest of the plugin - plugin config first, then `.env` files (`~/.openclaw/.env` -> `~/.moltbot/.env` -> `~/.clawdbot/.env`), then process env.
 
 ## Notes
 - `conversation_id` defaults to OpenClaw `sessionKey` (unless `conversationId` is provided). **TODO**: consider binding to OpenClaw `sessionId` directly.
