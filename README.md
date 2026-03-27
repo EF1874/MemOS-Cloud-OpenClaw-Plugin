@@ -95,6 +95,9 @@ MEMOS_API_KEY=YOUR_TOKEN
 - `MEMOS_USE_DIRECT_SESSION_USER_ID` (default: `false`; when enabled, direct session keys like `agent:main:<provider>:direct:<peer-id>` use `<peer-id>` as MemOS `user_id`)
 - `MEMOS_USE_MEMOS_USERID_TAG` (default: `false`; when enabled, the first `<memos_userid>...</memos_userid>` tag found in user text overrides MemOS `user_id` for search/add and is stripped from the payload sent to MemOS)
 - `MEMOS_CONVERSATION_ID` (optional override)
+- `MEMOS_KNOWLEDGEBASE_IDS` (optional; comma-separated global knowledge base IDs for `/search/memory`, e.g., `"kb-123, kb-456"`)
+- `MEMOS_ALLOW_KNOWLEDGEBASE_IDS` (optional; comma-separated knowledge base IDs for `/add/message`, e.g., `"kb-123"`)
+- `MEMOS_TAGS` (optional; comma-separated tags for `/add/message`, default: `"openclaw"`, e.g., `"openclaw, dev"`)
 - `MEMOS_RECALL_GLOBAL` (default: `true`; when true, search does **not** pass conversation_id)
 - `MEMOS_MULTI_AGENT_MODE` (default: `false`; enable multi-agent data isolation)
 - `MEMOS_ALLOWED_AGENTS` (optional; comma-separated allowlist for multi-agent mode, e.g. `"agent1,agent2"`; empty means all agents enabled)
@@ -259,6 +262,12 @@ Beyond simple on/off toggles, you can configure **different memory parameters fo
     }
   }
 }
+```
+
+**Environment variable** (in `~/.openclaw/.env`):
+You can use `MEMOS_AGENT_OVERRIDES` to configure a JSON string to override global parameters. Note: `.env` configuration has a lower priority than `agentOverrides` in `openclaw.json`.
+```env
+MEMOS_AGENT_OVERRIDES='{"research-agent": {"memoryLimitNumber": 12, "relativity": 0.3}, "coding-agent": {"memoryLimitNumber": 9}}'
 ```
 
 **How it works**:

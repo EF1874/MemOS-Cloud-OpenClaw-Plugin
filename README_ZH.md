@@ -97,6 +97,9 @@ MEMOS_API_KEY=YOUR_TOKEN
 - `MEMOS_USE_DIRECT_SESSION_USER_ID`（默认 `false`；开启后，对 `agent:main:<provider>:direct:<peer-id>` 这类私聊 sessionKey，会把 `<peer-id>` 作为 MemOS `user_id`）
 - `MEMOS_USE_MEMOS_USERID_TAG`（默认 `false`；开启后，会从用户文本中提取第一个 `<memos_userid>...</memos_userid>` 作为 MemOS `user_id`，并在发送给 MemOS 的 search/add payload 里剥掉该标签）
 - `MEMOS_CONVERSATION_ID`（可选覆盖）
+- `MEMOS_KNOWLEDGEBASE_IDS`（可选；逗号分隔的全局知识库 ID 列表，用于 `/search/memory`，例如：`"kb-123, kb-456"`）
+- `MEMOS_ALLOW_KNOWLEDGEBASE_IDS`（可选；逗号分隔的知识库 ID 列表，用于 `/add/message`，例如：`"kb-123"`）
+- `MEMOS_TAGS`（可选；逗号分隔的标签列表，用于 `/add/message`，默认：`"openclaw"`，例如：`"openclaw, dev"`）
 - `MEMOS_RECALL_GLOBAL`（默认 `true`；为 true 时检索不传 conversation_id）
 - `MEMOS_MULTI_AGENT_MODE`（默认 `false`；是否开启多 Agent 数据隔离模式）
 - `MEMOS_ALLOWED_AGENTS`（可选；多 Agent 模式下的白名单，逗号分隔，例如 `"agent1,agent2"`；为空则所有 Agent 均启用）
@@ -264,6 +267,12 @@ MEMOS_ALLOWED_AGENTS="agent1,agent2"
     }
   }
 }
+```
+
+**环境变量配置**（在 `~/.openclaw/.env` 中设置）：
+你可以使用 `MEMOS_AGENT_OVERRIDES` 来配置一个 JSON 字符串，覆盖全局参数。注意：`.env` 中的配置优先级低于 `openclaw.json` 中的 `agentOverrides` 配置。
+```env
+MEMOS_AGENT_OVERRIDES='{"research-agent": {"memoryLimitNumber": 12, "relativity": 0.3}, "coding-agent": {"memoryLimitNumber": 9}}'
 ```
 
 **工作原理**：
