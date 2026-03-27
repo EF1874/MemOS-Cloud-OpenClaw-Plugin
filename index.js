@@ -3,14 +3,12 @@ import {
   addMessage,
   buildConfig,
   extractResultData,
-  extractTaggedMemosUserId,
   extractText,
   formatRecallHookResult,
   isAgentAllowed,
   resolveAgentConfig,
   searchMemory,
   stripOpenClawInjectedPrefix,
-  stripTaggedMemosUserId,
 } from "./lib/memos-cloud-api.js";
 import { startUpdateChecker } from "./lib/check-update.js";
 let lastCaptureTime = 0;
@@ -65,32 +63,11 @@ export function extractDirectSessionUserId(sessionKey) {
   return parts[directIndex + 1] || "";
 }
 
-export function resolveMemosUserId(cfg, ctx, explicitOverride = "") {
+export function resolveMemosUserId(cfg, ctx) {
   const fallback = cfg?.userId || "openclaw-user";
-  const taggedUserId = cfg?.useMemosUserIdTag
-    ? `${explicitOverride || ctx?.memosUserIdOverride || ""}`.trim()
-    : "";
-  if (taggedUserId) return taggedUserId;
   if (!cfg?.useDirectSessionUserId) return fallback;
   const directUserId = extractDirectSessionUserId(ctx?.sessionKey);
   return directUserId || fallback;
-}
-
-export function sanitizeTextForMemos(text, cfg) {
-  const cleaned = stripOpenClawInjectedPrefix(text);
-  if (!cfg?.useMemosUserIdTag) return cleaned;
-  return stripTaggedMemosUserId(cleaned).trimStart();
-}
-
-export function extractLatestTaggedMemosUserIdFromMessages(messages) {
-  if (!Array.isArray(messages)) return "";
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const msg = messages[index];
-    if (msg?.role !== "user") continue;
-    const userId = extractTaggedMemosUserId(extractText(msg.content));
-    if (userId) return userId;
-  }
-  return "";
 }
 
 function resolveConversationId(cfg, ctx) {
@@ -106,8 +83,7 @@ function resolveConversationId(cfg, ctx) {
 }
 
 export function buildSearchPayload(cfg, prompt, ctx) {
-  const cleanPrompt = sanitizeTextForMemos(prompt, cfg);
-  const taggedUserId = cfg?.useMemosUserIdTag ? extractTaggedMemosUserId(prompt) : "";
+  const cleanPrompt = stripOpenClawInjectedPrefix(prompt);
   const queryRaw = `${cfg.queryPrefix || ""}${cleanPrompt}`;
   const query =
     Number.isFinite(cfg.maxQueryChars) && cfg.maxQueryChars > 0
@@ -115,7 +91,7 @@ export function buildSearchPayload(cfg, prompt, ctx) {
       : queryRaw;
 
   const payload = {
-    user_id: resolveMemosUserId(cfg, ctx, taggedUserId),
+    user_id: resolveMemosUserId(cfg, ctx),
     query,
     source: MEMOS_SOURCE,
   };
@@ -197,7 +173,7 @@ function pickLastTurnMessages(messages, cfg) {
   for (const msg of slice) {
     if (!msg || !msg.role) continue;
     if (msg.role === "user") {
-      const content = sanitizeTextForMemos(extractText(msg.content), cfg);
+      const content = stripOpenClawInjectedPrefix(extractText(msg.content));
       if (content) results.push({ role: "user", content: truncate(content, cfg.maxMessageChars) });
       continue;
     }
@@ -215,7 +191,7 @@ function pickFullSessionMessages(messages, cfg) {
   for (const msg of messages) {
     if (!msg || !msg.role) continue;
     if (msg.role === "user") {
-      const content = sanitizeTextForMemos(extractText(msg.content), cfg);
+      const content = stripOpenClawInjectedPrefix(extractText(msg.content));
       if (content) results.push({ role: "user", content: truncate(content, cfg.maxMessageChars) });
     }
     if (msg.role === "assistant" && cfg.includeAssistant) {
@@ -488,8 +464,7 @@ export default {
       }
       const agentCfg = resolveAgentConfig(cfg, ctx?.agentId);
       if (!agentCfg.recallEnabled) return;
-      const rawPrompt = event?.prompt || "";
-      const userPrompt = sanitizeTextForMemos(rawPrompt, agentCfg);
+      const userPrompt = stripOpenClawInjectedPrefix(event?.prompt || "");
       if (!userPrompt || userPrompt.length < 3) return;
       if (!agentCfg.apiKey) {
         warnMissingApiKey(log, "recall");
@@ -497,7 +472,7 @@ export default {
       }
 
       try {
-        const payload = buildSearchPayload(agentCfg, rawPrompt, ctx);
+        const payload = buildSearchPayload(agentCfg, userPrompt, ctx);
         const result = await searchMemory(agentCfg, payload);
         const resultData = extractResultData(result);
         if (!resultData) return;
@@ -535,9 +510,6 @@ export default {
       lastCaptureTime = now;
 
       try {
-        const memosUserIdOverride = agentCfg.useMemosUserIdTag
-          ? extractLatestTaggedMemosUserIdFromMessages(event.messages)
-          : "";
         const messages =
           agentCfg.captureStrategy === "full_session"
             ? pickFullSessionMessages(event.messages, agentCfg)
@@ -545,10 +517,7 @@ export default {
 
         if (!messages.length) return;
 
-        const payload = buildAddMessagePayload(agentCfg, messages, {
-          ...ctx,
-          memosUserIdOverride,
-        });
+        const payload = buildAddMessagePayload(agentCfg, messages, ctx);
         await addMessage(agentCfg, payload);
       } catch (err) {
         log.warn?.(`[memos-cloud] add failed: ${String(err)}`);
