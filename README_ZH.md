@@ -95,6 +95,7 @@ MEMOS_API_KEY=YOUR_TOKEN
 - `MEMOS_API_KEY`（必填，Token 认证）—— 获取地址：https://memos-dashboard.openmem.net/cn/apikeys/
 - `MEMOS_USER_ID`（可选，默认 `openclaw-user`）
 - `MEMOS_USE_DIRECT_SESSION_USER_ID`（默认 `false`；开启后，对 `agent:main:<provider>:direct:<peer-id>` 这类私聊 sessionKey，会把 `<peer-id>` 作为 MemOS `user_id`）
+- `MEMOS_USE_MEMOS_USERID_TAG`（默认 `false`；开启后，会从用户文本中提取第一个 `<memos_userid>...</memos_userid>` 作为 MemOS `user_id`，并在发送给 MemOS 的 search/add payload 里剥掉该标签）
 - `MEMOS_CONVERSATION_ID`（可选覆盖）
 - `MEMOS_RECALL_GLOBAL`（默认 `true`；为 true 时检索不传 conversation_id）
 - `MEMOS_MULTI_AGENT_MODE`（默认 `false`；是否开启多 Agent 数据隔离模式）
@@ -125,6 +126,7 @@ MEMOS_API_KEY=YOUR_TOKEN
   "apiKey": "YOUR_API_KEY",
   "userId": "memos_user_123",
   "useDirectSessionUserId": false,
+  "useMemosUserIdTag": false,
   "conversationId": "openclaw-main",
   "queryPrefix": "important user context preferences decisions ",
   "recallEnabled": true,
@@ -304,6 +306,15 @@ MEMOS_ALLOWED_AGENTS="agent1,agent2"
 - **作用范围**：同一套解析逻辑同时作用于 `buildSearchPayload()` 和 `buildAddMessagePayload()`，保证 recall 与 add 一致。
 - **配置优先级**：仍遵循插件现有规则——插件 config 优先，其次是 `.env` 文件（`~/.openclaw/.env` -> `~/.moltbot/.env` -> `~/.clawdbot/.env`），最后才回退到进程环境变量。
 
+## Memos User ID 标签覆盖（Memos User ID Tag Override）
+- **默认行为**：默认关闭；插件不会主动解析用户文本中的 `<memos_userid>...</memos_userid>` 标签。
+- **开启方式**：在插件 config 中设置 `"useMemosUserIdTag": true`，或在环境变量中设置 `MEMOS_USE_MEMOS_USERID_TAG=true`。
+- **行为说明**：开启后，插件会提取第一个 `<memos_userid>...</memos_userid>` 标签，并把中间文本原样作为 MemOS `user_id` 字符串，同时作用于 search 和 add。
+- **优先级**：这是最高优先级的 `user_id` 覆盖；命中后会覆盖 `useDirectSessionUserId` 以及配置里的 fallback `userId`。
+- **payload 处理**：标签只会从发送给 MemOS 的 payload 中剥掉（`/search/memory` 的 query、`/add/message` 的 user content）。
+- **不会影响的部分**：不会改写模型看到的原始 user message；只影响插件发给 MemOS 的内容。
+- **多个标签**：只取第一个命中的标签。
+- **配置优先级**：仍遵循插件现有规则——插件 config 优先，其次是 `.env` 文件（`~/.openclaw/.env` -> `~/.moltbot/.env` -> `~/.clawdbot/.env`），最后才回退到进程环境变量。
 
 ## 说明
 - 未显式指定 `conversation_id` 时，默认使用 OpenClaw `sessionKey`。**TODO**：后续考虑直接绑定 OpenClaw `sessionId`。
