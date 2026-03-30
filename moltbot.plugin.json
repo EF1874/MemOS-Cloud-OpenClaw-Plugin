@@ -2,7 +2,7 @@
   "id": "memos-cloud-openclaw-plugin",
   "name": "MemOS Cloud OpenClaw Plugin",
   "description": "MemOS Cloud recall + add memory via lifecycle hooks",
-  "version": "0.1.10",
+  "version": "0.1.11-beta.0",
   "kind": "lifecycle",
   "main": "./index.js",
   "configSchema": {
@@ -223,45 +223,96 @@
           "properties": {
             "knowledgebaseIds": {
               "type": "array",
-              "items": { "type": "string" }
+              "items": {
+                "type": "string"
+              }
             },
-            "memoryLimitNumber": { "type": "integer" },
-            "preferenceLimitNumber": { "type": "integer" },
-            "includePreference": { "type": "boolean" },
-            "includeToolMemory": { "type": "boolean" },
-            "toolMemoryLimitNumber": { "type": "integer" },
-            "includeSkill": { "type": "boolean" },
-            "skillLimitNumber": { "type": "integer" },
-            "relativity": { "type": "number" },
+            "memoryLimitNumber": {
+              "type": "integer"
+            },
+            "preferenceLimitNumber": {
+              "type": "integer"
+            },
+            "includePreference": {
+              "type": "boolean"
+            },
+            "includeToolMemory": {
+              "type": "boolean"
+            },
+            "toolMemoryLimitNumber": {
+              "type": "integer"
+            },
+            "includeSkill": {
+              "type": "boolean"
+            },
+            "skillLimitNumber": {
+              "type": "integer"
+            },
+            "relativity": {
+              "type": "number"
+            },
             "filter": {
               "type": "object",
               "additionalProperties": true
             },
-            "recallEnabled": { "type": "boolean" },
-            "addEnabled": { "type": "boolean" },
+            "recallEnabled": {
+              "type": "boolean"
+            },
+            "addEnabled": {
+              "type": "boolean"
+            },
             "captureStrategy": {
               "type": "string",
-              "enum": ["last_turn", "full_session"]
+              "enum": [
+                "last_turn",
+                "full_session"
+              ]
             },
-            "queryPrefix": { "type": "string" },
-            "maxQueryChars": { "type": "integer" },
-            "maxItemChars": { "type": "integer" },
-            "maxMessageChars": { "type": "integer" },
-            "includeAssistant": { "type": "boolean" },
-            "recallGlobal": { "type": "boolean" },
-            "recallFilterEnabled": { "type": "boolean" },
-            "recallFilterModel": { "type": "string" },
-            "recallFilterBaseUrl": { "type": "string" },
-            "recallFilterApiKey": { "type": "string" },
+            "queryPrefix": {
+              "type": "string"
+            },
+            "maxQueryChars": {
+              "type": "integer"
+            },
+            "maxItemChars": {
+              "type": "integer"
+            },
+            "maxMessageChars": {
+              "type": "integer"
+            },
+            "includeAssistant": {
+              "type": "boolean"
+            },
+            "recallGlobal": {
+              "type": "boolean"
+            },
+            "recallFilterEnabled": {
+              "type": "boolean"
+            },
+            "recallFilterModel": {
+              "type": "string"
+            },
+            "recallFilterBaseUrl": {
+              "type": "string"
+            },
+            "recallFilterApiKey": {
+              "type": "string"
+            },
             "allowKnowledgebaseIds": {
               "type": "array",
-              "items": { "type": "string" }
+              "items": {
+                "type": "string"
+              }
             },
             "tags": {
               "type": "array",
-              "items": { "type": "string" }
+              "items": {
+                "type": "string"
+              }
             },
-            "throttleMs": { "type": "integer" }
+            "throttleMs": {
+              "type": "integer"
+            }
           },
           "additionalProperties": false
         }
