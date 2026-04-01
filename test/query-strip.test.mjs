@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   USER_QUERY_MARKER,
+  formatPromptBlockFromData,
   sanitizeAddMessagePayload,
   sanitizeSearchPayload,
   stripOpenClawInjectedPrefix,
@@ -337,4 +338,44 @@ test("sanitizes only user messages in add payload", () => {
       },
     ],
   });
+});
+
+test("formatPromptBlockFromData prefers update_time over create_time", () => {
+  const block = formatPromptBlockFromData({
+    memory_detail_list: [
+      {
+        memory_value: "更新后的记忆",
+        create_time: "2026-03-17 10:00",
+        update_time: "2026-03-18 16:20",
+        relativity: 0.9,
+      },
+    ],
+    preference_detail_list: [
+      {
+        preference: "更新后的偏好",
+        preference_type: "explicit",
+        create_time: "2026-03-17 11:00",
+        update_time: "2026-03-18 16:21",
+        relativity: 0.9,
+      },
+    ],
+  });
+
+  assert.match(block, /\-\[2026-03-18 16:20\] 更新后的记忆/);
+  assert.match(block, /\-\[2026-03-18 16:21\] \[Explicit Preference\] 更新后的偏好/);
+});
+
+test("formatPromptBlockFromData falls back to create_time when update_time is missing", () => {
+  const block = formatPromptBlockFromData({
+    memory_detail_list: [
+      {
+        memory_value: "只有创建时间",
+        create_time: "2026-03-18 09:30",
+        relativity: 0.9,
+      },
+    ],
+    preference_detail_list: [],
+  });
+
+  assert.match(block, /\-\[2026-03-18 09:30\] 只有创建时间/);
 });
