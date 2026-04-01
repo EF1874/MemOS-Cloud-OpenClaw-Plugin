@@ -130,7 +130,7 @@
       },
       "memoryLimitNumber": {
         "type": "integer",
-        "default": 6
+        "default": 9
       },
       "preferenceLimitNumber": {
         "type": "integer",
@@ -148,49 +148,15 @@
         "type": "integer",
         "default": 6
       },
+      "relativity": {
+        "type": "number",
+        "description": "Minimum relativity score required before a recalled item is injected",
+        "default": 0.45
+      },
       "filter": {
         "type": "object",
         "description": "MemOS search filter",
         "additionalProperties": true
-      },
-      "relativity": {
-        "type": "number",
-        "description": "Search relativity threshold",
-        "default": 0.45
-      },
-      "recallFilterEnabled": {
-        "type": "boolean",
-        "default": false
-      },
-      "recallFilterBaseUrl": {
-        "type": "string",
-        "description": "OpenAI-compatible API base URL for recall filtering"
-      },
-      "recallFilterApiKey": {
-        "type": "string"
-      },
-      "recallFilterModel": {
-        "type": "string"
-      },
-      "recallFilterTimeoutMs": {
-        "type": "integer",
-        "default": 30000
-      },
-      "recallFilterRetries": {
-        "type": "integer",
-        "default": 1
-      },
-      "recallFilterCandidateLimit": {
-        "type": "integer",
-        "default": 30
-      },
-      "recallFilterMaxItemChars": {
-        "type": "integer",
-        "default": 500
-      },
-      "recallFilterFailOpen": {
-        "type": "boolean",
-        "default": true
       },
       "knowledgebaseIds": {
         "type": "array",

@@ -7,7 +7,17 @@ A minimal OpenClaw lifecycle plugin that **recalls** memories from MemOS Cloud b
 ## Features
 - **Recall**: `before_agent_start` → `/search/memory`
 - **Add**: `agent_end` → `/add/message`
+- **Config UI**: starting the gateway also starts a local plugin config page for editing `plugins.entries.memos-cloud-openclaw-plugin.config`
 - Uses **Token** auth (`Authorization: Token <MEMOS_API_KEY>`)
+
+## Config UI
+- On gateway start, the plugin launches a local config page and prints the URL in the terminal.
+- The page reads and writes the host config file directly:
+  - OpenClaw: `~/.openclaw/openclaw.json`
+  - Moltbot: `~/.moltbot/moltbot.json`
+  - ClawDBot: `~/.clawdbot/clawdbot.json`
+- If the preferred UI port is already in use, the plugin automatically picks the next free port.
+- Saving changes writes `plugins.entries.memos-cloud-openclaw-plugin.config` and then restarts the gateway automatically.
 
 ## Install
 

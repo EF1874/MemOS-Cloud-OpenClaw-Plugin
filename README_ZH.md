@@ -9,7 +9,17 @@
 ## 功能
 - **Recall**：`before_agent_start` → `/search/memory`
 - **Add**：`agent_end` → `/add/message`
+- **Config UI**：启动 gateway 时同时启动本地插件配置页面，用来编辑 `plugins.entries.memos-cloud-openclaw-plugin.config`
 - 使用 **Token** 认证（`Authorization: Token <MEMOS_API_KEY>`）
+
+## 配置页面
+- Gateway 启动后，插件会同时拉起一个本地配置页面，并在终端输出访问地址。
+- 页面会直接读取并写回当前宿主的配置文件：
+  - OpenClaw：`~/.openclaw/openclaw.json`
+  - Moltbot：`~/.moltbot/moltbot.json`
+  - ClawDBot：`~/.clawdbot/clawdbot.json`
+- 如果默认端口被占用，插件会自动顺延到下一个可用端口。
+- 页面保存后会写回 `plugins.entries.memos-cloud-openclaw-plugin.config`，然后自动重启 gateway。
 
 ## 安装
 
