@@ -2,7 +2,7 @@
   "id": "memos-cloud-openclaw-plugin",
   "name": "MemOS Cloud OpenClaw Plugin",
   "description": "MemOS Cloud recall + add memory via lifecycle hooks",
-  "version": "0.1.11",
+  "version": "0.1.12-beta.0",
   "kind": "lifecycle",
   "main": "./index.js",
   "configSchema": {
@@ -18,8 +18,7 @@
       },
       "userId": {
         "type": "string",
-        "description": "MemOS user_id (default: openclaw-user)",
-        "default": "openclaw-user"
+        "description": "MemOS user_id (default: openclaw-user)"
       },
       "conversationId": {
         "type": "string",
@@ -38,17 +37,14 @@
         "enum": [
           "none",
           "counter"
-        ],
-        "default": "none"
+        ]
       },
       "useDirectSessionUserId": {
         "type": "boolean",
-        "description": "When enabled, direct-session keys like agent:main:<provider>:direct:<id> use the direct id as MemOS user_id instead of the default configured userId.",
-        "default": false
+        "description": "When enabled, direct-session keys like agent:main:<provider>:direct:<id> use the direct id as MemOS user_id instead of the default configured userId."
       },
       "resetOnNew": {
-        "type": "boolean",
-        "default": true
+        "type": "boolean"
       },
       "queryPrefix": {
         "type": "string",
@@ -63,12 +59,10 @@
         "default": true
       },
       "recallGlobal": {
-        "type": "boolean",
-        "default": true
+        "type": "boolean"
       },
       "recallFilterEnabled": {
-        "type": "boolean",
-        "default": false
+        "type": "boolean"
       },
       "recallFilterBaseUrl": {
         "type": "string",
@@ -83,24 +77,19 @@
         "description": "Model name used to filter recall candidates"
       },
       "recallFilterTimeoutMs": {
-        "type": "integer",
-        "default": 6000
+        "type": "integer"
       },
       "recallFilterRetries": {
-        "type": "integer",
-        "default": 0
+        "type": "integer"
       },
       "recallFilterCandidateLimit": {
-        "type": "integer",
-        "default": 30
+        "type": "integer"
       },
       "recallFilterMaxItemChars": {
-        "type": "integer",
-        "default": 500
+        "type": "integer"
       },
       "recallFilterFailOpen": {
-        "type": "boolean",
-        "default": true
+        "type": "boolean"
       },
       "addEnabled": {
         "type": "boolean",
@@ -111,13 +100,11 @@
         "enum": [
           "last_turn",
           "full_session"
-        ],
-        "default": "last_turn"
+        ]
       },
       "maxMessageChars": {
         "type": "integer",
-        "description": "Max chars per message when adding",
-        "default": 20000
+        "description": "Max chars per message when adding"
       },
       "maxItemChars": {
         "type": "integer",
@@ -125,8 +112,7 @@
         "default": 8000
       },
       "includeAssistant": {
-        "type": "boolean",
-        "default": true
+        "type": "boolean"
       },
       "memoryLimitNumber": {
         "type": "integer",
@@ -150,8 +136,7 @@
       },
       "relativity": {
         "type": "number",
-        "description": "Minimum relativity score required before a recalled item is injected",
-        "default": 0.45
+        "description": "Minimum relativity score required before a recalled item is injected"
       },
       "filter": {
         "type": "object",
@@ -178,8 +163,7 @@
         "type": "string"
       },
       "multiAgentMode": {
-        "type": "boolean",
-        "default": false
+        "type": "boolean"
       },
       "allowedAgents": {
         "type": "array",
@@ -202,8 +186,7 @@
         }
       },
       "asyncMode": {
-        "type": "boolean",
-        "default": true
+        "type": "boolean"
       },
       "rumEnabled": {
         "type": "boolean",
@@ -218,8 +201,7 @@
         "default": 1
       },
       "throttleMs": {
-        "type": "integer",
-        "default": 0
+        "type": "integer"
       },
       "agentOverrides": {
         "type": "object",
