@@ -11,7 +11,7 @@ A minimal OpenClaw lifecycle plugin that **recalls** memories from MemOS Cloud b
 - Uses **Token** auth (`Authorization: Token <MEMOS_API_KEY>`)
 
 ## Config UI
-- On gateway start, the plugin launches a local config page and prints the URL in the terminal.
+- On gateway start, the plugin launches a local config page and prints the URL in the terminal (default: `http://127.0.0.1:38463`).
 - The page reads and writes the host config file directly:
   - OpenClaw: `~/.openclaw/openclaw.json`
   - Moltbot: `~/.moltbot/moltbot.json`

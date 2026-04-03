@@ -13,7 +13,7 @@
 - 使用 **Token** 认证（`Authorization: Token <MEMOS_API_KEY>`）
 
 ## 配置页面
-- Gateway 启动后，插件会同时拉起一个本地配置页面，并在终端输出访问地址。
+- Gateway 启动后，插件会同时拉起一个本地配置页面，并在终端输出访问地址（默认：`http://127.0.0.1:38463`）。
 - 页面会直接读取并写回当前宿主的配置文件：
   - OpenClaw：`~/.openclaw/openclaw.json`
   - Moltbot：`~/.moltbot/moltbot.json`
