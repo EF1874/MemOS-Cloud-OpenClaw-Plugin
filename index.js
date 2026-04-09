@@ -108,7 +108,7 @@ export function buildSearchPayload(cfg, prompt, ctx) {
 
   // Check if the filter is already in the categorized format (filter1)
   const isCategorized = filterObj && (filterObj.user !== undefined || filterObj.knowledgebase !== undefined || filterObj.public !== undefined);
-  let userFilter = isCategorized ? (filterObj.user || null) : filtgiterObj;
+  let userFilter = isCategorized ? (filterObj.user || null) : filterObj;
 
   if (agentId) {
     if (userFilter && Object.keys(userFilter).length > 0) {
