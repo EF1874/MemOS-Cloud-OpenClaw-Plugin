@@ -106,19 +106,29 @@ export function buildSearchPayload(cfg, prompt, ctx) {
   let filterObj = cfg.filter ? JSON.parse(JSON.stringify(cfg.filter)) : null;
   const agentId = getEffectiveAgentId(cfg, ctx);
 
+  // Check if the filter is already in the categorized format (filter1)
+  const isCategorized = filterObj && (filterObj.user !== undefined || filterObj.knowledgebase !== undefined || filterObj.public !== undefined);
+  let userFilter = isCategorized ? (filterObj.user || null) : filtgiterObj;
+
   if (agentId) {
-    if (filterObj) {
-      if (Array.isArray(filterObj.and)) {
-        filterObj.and.push({ agent_id: agentId });
+    if (userFilter && Object.keys(userFilter).length > 0) {
+      if (Array.isArray(userFilter.and)) {
+        userFilter.and.push({ agent_id: agentId });
       } else {
-        filterObj = { and: [filterObj, { agent_id: agentId }] };
+        userFilter = { and: [userFilter, { agent_id: agentId }] };
       }
     } else {
-      filterObj = { agent_id: agentId };
+      userFilter = { agent_id: agentId };
     }
   }
 
-  if (filterObj) payload.filter = filterObj;
+  if (isCategorized) {
+    if (userFilter && Object.keys(userFilter).length > 0) filterObj.user = userFilter;
+    if (Object.keys(filterObj).length > 0) payload.filter = filterObj;
+  } else if (userFilter && Object.keys(userFilter).length > 0) {
+    // If not categorized, wrap it in 'user' so knowledgebase is not filtered
+    payload.filter = { user: userFilter };
+  }
 
   if (cfg.knowledgebaseIds?.length) payload.knowledgebase_ids = cfg.knowledgebaseIds;
 
