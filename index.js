@@ -118,7 +118,7 @@ export function buildSearchPayload(cfg, prompt, ctx) {
         userFilter = { and: [userFilter, { agent_id: agentId }] };
       }
     } else {
-      userFilter = { agent_id: agentId };
+      userFilter = { and: [{ agent_id: agentId }] };
     }
   }
 
