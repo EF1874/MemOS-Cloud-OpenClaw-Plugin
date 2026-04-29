@@ -12,7 +12,13 @@ import {
 } from "./lib/memos-cloud-api.js";
 import { reportRumEvent } from "./lib/arms-reporter.js";
 import { startUpdateChecker } from "./lib/check-update.js";
-import { closeConfigUiService, ensureConfigUiService, waitForGatewayReady } from "./lib/config-ui-server.js";
+import {
+  closeConfigUiService,
+  ensureConfigUiService,
+  ensurePluginHookPolicy,
+  isGatewayRuntimeStartup,
+  waitForGatewayReady,
+} from "./lib/config-ui-server.js";
 let lastCaptureTime = 0;
 const conversationCounters = new Map();
 const API_KEY_HELP_URL = "https://memos-dashboard.openmem.net/cn/apikeys/";
@@ -438,13 +444,43 @@ export default {
 
     // Start 12-hour background update interval
     startUpdateChecker(log);
-    void (async () => {
-      const ready = await waitForGatewayReady(api.config, log);
-      if (!ready || configUiStartupCancelled) return;
-      await ensureConfigUiService(log);
-    })().catch((error) => {
-      log.warn?.(`[memos-cloud] config UI failed to start: ${String(error)}`);
-    });
+
+    // Side effects below are only meaningful when the host CLI was actually
+    // launched to run the gateway (`openclaw gateway run|start|restart`).
+    // Other entry points (e.g. `plugins install`, `security audit`) also
+    // load this plugin to inspect/register it, but:
+    //   - `ensurePluginHookPolicy` writes to `openclaw.json` and would race
+    //     against the install command's own commit (ConfigMutationConflictError).
+    //   - `waitForGatewayReady` would keep the short-lived event loop alive
+    //     for 45s probing a gateway that will never come up, then emit a
+    //     misleading "probe timed out" warning before the process exits.
+    // Gate them all in one place so the policy is explicit and discoverable.
+    if (isGatewayRuntimeStartup()) {
+      // Ensure the gateway grants this plugin the typed-hook policies it
+      // needs (e.g. `allowConversationAccess` for `agent_end`). When a patch
+      // is applied the function prints its own eye-catching banner asking
+      // the user to restart; here we only surface unexpected errors.
+      try {
+        const policyResult = ensurePluginHookPolicy(api.config, log);
+        if (policyResult?.error) {
+          log.warn?.(
+            `[memos-cloud] hook policy check skipped due to error: ${String(policyResult.error?.message ?? policyResult.error)}`,
+          );
+        }
+      } catch (error) {
+        log.warn?.(
+          `[memos-cloud] failed to ensure plugin hook policy: ${String(error?.message ?? error)}`,
+        );
+      }
+
+      void (async () => {
+        const ready = await waitForGatewayReady(api.config, log);
+        if (!ready || configUiStartupCancelled) return;
+        await ensureConfigUiService(log);
+      })().catch((error) => {
+        log.warn?.(`[memos-cloud] config UI failed to start: ${String(error)}`);
+      });
+    }
 
     if (!cfg.envFileStatus?.found) {
       const searchPaths = cfg.envFileStatus?.searchPaths?.join(", ") ?? ENV_FILE_SEARCH_HINTS.join(", ");
