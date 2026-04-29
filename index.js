@@ -14,6 +14,8 @@ import { reportRumEvent } from "./lib/arms-reporter.js";
 import { startUpdateChecker } from "./lib/check-update.js";
 import {
   closeConfigUiService,
+  compareVersionStrings,
+  detectHostVersion,
   ensureConfigUiService,
   ensurePluginHookPolicy,
   isGatewayRuntimeStartup,
@@ -456,21 +458,33 @@ export default {
     //     misleading "probe timed out" warning before the process exits.
     // Gate them all in one place so the policy is explicit and discoverable.
     if (isGatewayRuntimeStartup()) {
-      // Ensure the gateway grants this plugin the typed-hook policies it
-      // needs (e.g. `allowConversationAccess` for `agent_end`). When a patch
-      // is applied the function prints its own eye-catching banner asking
-      // the user to restart; here we only surface unexpected errors.
-      try {
-        const policyResult = ensurePluginHookPolicy(api.config, log);
-        if (policyResult?.error) {
+      // Detect the host CLI version once so every branch below can reference it.
+      // `allowConversationAccess` hook policy was introduced in 2026.4.23;
+      // older hosts do not understand the field and don't need it patched in.
+      const hostVersion = detectHostVersion();
+
+      const HOOK_POLICY_MIN_VERSION = "2026.4.23";
+      const needsHookPolicy =
+        hostVersion === null ||
+        compareVersionStrings(hostVersion, HOOK_POLICY_MIN_VERSION) >= 0;
+
+      if (needsHookPolicy) {
+        // Ensure the gateway grants this plugin the typed-hook policies it
+        // needs (e.g. `allowConversationAccess` for `agent_end`). When a patch
+        // is applied the function prints its own eye-catching banner asking
+        // the user to restart; here we only surface unexpected errors.
+        try {
+          const policyResult = ensurePluginHookPolicy(api.config, log);
+          if (policyResult?.error) {
+            log.warn?.(
+              `[memos-cloud] hook policy check skipped due to error: ${String(policyResult.error?.message ?? policyResult.error)}`,
+            );
+          }
+        } catch (error) {
           log.warn?.(
-            `[memos-cloud] hook policy check skipped due to error: ${String(policyResult.error?.message ?? policyResult.error)}`,
+            `[memos-cloud] failed to ensure plugin hook policy: ${String(error?.message ?? error)}`,
           );
         }
-      } catch (error) {
-        log.warn?.(
-          `[memos-cloud] failed to ensure plugin hook policy: ${String(error?.message ?? error)}`,
-        );
       }
 
       void (async () => {
