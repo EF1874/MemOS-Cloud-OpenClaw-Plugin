@@ -29,25 +29,16 @@
   "author": "MemTensor",
   "license": "MIT",
   "openclaw": {
-    "hooks": [
-      "./index.js"
-    ],
     "extensions": [
       "./index.js"
     ]
   },
   "clawdbot": {
-    "hooks": [
-      "./index.js"
-    ],
     "extensions": [
       "./index.js"
     ]
   },
   "moltbot": {
-    "hooks": [
-      "./index.js"
-    ],
     "extensions": [
       "./index.js"
     ]
