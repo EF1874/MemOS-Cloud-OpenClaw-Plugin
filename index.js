@@ -447,6 +447,9 @@ export default {
     // Start 12-hour background update interval
     startUpdateChecker(log);
 
+    // Detect the host CLI version once so every hook registration branch can reference it.
+    const hostVersion = detectHostVersion();
+
     // Side effects below are only meaningful when the host CLI was actually
     // launched to run the gateway (`openclaw gateway run|start|restart`).
     // Other entry points (e.g. `plugins install`, `security audit`) also
@@ -458,11 +461,8 @@ export default {
     //     misleading "probe timed out" warning before the process exits.
     // Gate them all in one place so the policy is explicit and discoverable.
     if (isGatewayRuntimeStartup()) {
-      // Detect the host CLI version once so every branch below can reference it.
       // `allowConversationAccess` hook policy was introduced in 2026.4.23;
       // older hosts do not understand the field and don't need it patched in.
-      const hostVersion = detectHostVersion();
-
       const HOOK_POLICY_MIN_VERSION = "2026.4.23";
       const needsHookPolicy =
         hostVersion === null ||
@@ -529,7 +529,7 @@ export default {
       );
     }
 
-    api.on("before_agent_start", async (event, ctx) => {
+    const runRecall = async (event, ctx) => {
       if (!isAgentAllowed(cfg, ctx)) {
         log.info?.(`[memos-cloud] recall skipped: agent "${ctx?.agentId}" not in allowedAgents [${cfg.allowedAgents?.join(", ")}]`);
         return;
@@ -561,7 +561,21 @@ export default {
       } catch (err) {
         log.warn?.(`[memos-cloud] recall failed: ${String(err)}`);
       }
-    });
+    };
+
+    // Recall mutates prompt context only, so the phase-specific replacement for
+    // legacy before_agent_start is before_prompt_build. Do not register both on
+    // new hosts, otherwise the same memory block can be injected twice.
+    const PROMPT_BUILD_HOOK_MIN_VERSION = "2026.5.7";
+    const usesBeforePromptBuild =
+      hostVersion !== null &&
+      compareVersionStrings(hostVersion, PROMPT_BUILD_HOOK_MIN_VERSION) >= 0;
+
+    if (usesBeforePromptBuild) {
+      api.on("before_prompt_build", runRecall);
+    } else {
+      api.on("before_agent_start", runRecall);
+    }
 
     api.on("agent_end", async (event, ctx) => {
       if (!isAgentAllowed(cfg, ctx)) {
