@@ -468,28 +468,29 @@ export default {
         hostVersion === null ||
         compareVersionStrings(hostVersion, HOOK_POLICY_MIN_VERSION) >= 0;
 
-      if (needsHookPolicy) {
-        // Ensure the gateway grants this plugin the typed-hook policies it
-        // needs (e.g. `allowConversationAccess` for `agent_end`). When a patch
-        // is applied the function prints its own eye-catching banner asking
-        // the user to restart; here we only surface unexpected errors.
-        try {
-          const policyResult = ensurePluginHookPolicy(api.config, log);
-          if (policyResult?.error) {
-            log.warn?.(
-              `[memos-cloud] hook policy check skipped due to error: ${String(policyResult.error?.message ?? policyResult.error)}`,
-            );
-          }
-        } catch (error) {
-          log.warn?.(
-            `[memos-cloud] failed to ensure plugin hook policy: ${String(error?.message ?? error)}`,
-          );
-        }
-      }
-
       void (async () => {
         const ready = await waitForGatewayReady(api.config, log);
         if (!ready || configUiStartupCancelled) return;
+
+        // Patch hook policy AFTER gateway is fully ready. Writing the config
+        // file at this point triggers the gateway's built-in config-change
+        // watcher which will auto-restart, making agent_end effective without
+        // requiring the user to manually restart.
+        if (needsHookPolicy) {
+          try {
+            const policyResult = ensurePluginHookPolicy(api.config, log);
+            if (policyResult?.error) {
+              log.warn?.(
+                `[memos-cloud] hook policy check skipped due to error: ${String(policyResult.error?.message ?? policyResult.error)}`,
+              );
+            }
+          } catch (error) {
+            log.warn?.(
+              `[memos-cloud] failed to ensure plugin hook policy: ${String(error?.message ?? error)}`,
+            );
+          }
+        }
+
         await ensureConfigUiService(log);
       })().catch((error) => {
         log.warn?.(`[memos-cloud] config UI failed to start: ${String(error)}`);
