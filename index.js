@@ -530,6 +530,16 @@ export default {
     }
 
     const runRecall = async (event, ctx) => {
+      // Skip system events: heartbeat, /new, /reset, and other commands
+      const prompt = event?.prompt || "";
+      const isHeartbeat = /Read HEARTBEAT\.md if it exists|reply HEARTBEAT_OK|\[OpenClaw heartbeat poll\]/i.test(prompt);
+      const isSystemCommand = /^\/(new|reset|stop|status|help|dock_|undock)/i.test(prompt.trim());
+
+      if (isHeartbeat || isSystemCommand) {
+        log.info?.(`[memos-cloud] recall skipped: system event detected (heartbeat=${isHeartbeat}, command=${isSystemCommand}, prompt="${prompt.substring(0, 50)}...")`);
+        return;
+      }
+
       if (!isAgentAllowed(cfg, ctx)) {
         log.info?.(`[memos-cloud] recall skipped: agent "${ctx?.agentId}" not in allowedAgents [${cfg.allowedAgents?.join(", ")}]`);
         return;
@@ -578,6 +588,20 @@ export default {
     }
 
     api.on("agent_end", async (event, ctx) => {
+      // Skip system events: heartbeat and commands
+      // Check the last user message to determine if this was a system event
+      const messages = event?.messages || [];
+      const lastUserMsg = messages.slice().reverse().find(m => m?.role === "user");
+      const lastUserContent = extractText(lastUserMsg?.content || "");
+      
+      const isHeartbeat = /Read HEARTBEAT\.md if it exists|reply HEARTBEAT_OK|\[OpenClaw heartbeat poll\]/i.test(lastUserContent);
+      const isSystemCommand = /^\/(new|reset|stop|status|help|dock_|undock)/i.test(lastUserContent.trim());
+      
+      if (isHeartbeat || isSystemCommand) {
+        log.info?.(`[memos-cloud] add skipped: system event detected (heartbeat=${isHeartbeat}, command=${isSystemCommand}, content="${lastUserContent.substring(0, 50)}...")`);
+        return;
+      }
+
       if (!isAgentAllowed(cfg, ctx)) {
         log.info?.(`[memos-cloud] add skipped: agent "${ctx?.agentId}" not in allowedAgents [${cfg.allowedAgents?.join(", ")}]`);
         return;
