@@ -27,6 +27,22 @@ const API_KEY_HELP_URL = "https://memos-dashboard.openmem.net/cn/apikeys/";
 const ENV_FILE_SEARCH_HINTS = ["~/.openclaw/.env", "~/.moltbot/.env", "~/.clawdbot/.env"];
 const MEMOS_SOURCE = "openclaw";
 
+// Heartbeat prompts are always injected at the very beginning of the user
+// content by the host (OpenClaw). Anchoring at start prevents false positives
+// when a legitimate user message happens to mention these phrases.
+const HEARTBEAT_PROMPT_PATTERN =
+  /^\s*(?:Read HEARTBEAT\.md if it exists\b|\[OpenClaw heartbeat poll\])/i;
+const SYSTEM_COMMAND_PATTERN = /^\/(?:new|reset|stop|status|help|dock_|undock)\b/i;
+
+function isHeartbeatPrompt(text) {
+  return typeof text === "string" && HEARTBEAT_PROMPT_PATTERN.test(text);
+}
+
+function isSystemCommandPrompt(text) {
+  if (typeof text !== "string") return false;
+  return SYSTEM_COMMAND_PATTERN.test(text.trimStart());
+}
+
 function warnMissingApiKey(log, context) {
   const heading = "[memos-cloud] Missing MEMOS_API_KEY (Token auth)";
   const header = `${heading}${context ? `; ${context} skipped` : ""}. Configure it with:`;
@@ -532,8 +548,8 @@ export default {
     const runRecall = async (event, ctx) => {
       // Skip system events: heartbeat, /new, /reset, and other commands
       const prompt = event?.prompt || "";
-      const isHeartbeat = /Read HEARTBEAT\.md if it exists|reply HEARTBEAT_OK|\[OpenClaw heartbeat poll\]/i.test(prompt);
-      const isSystemCommand = /^\/(new|reset|stop|status|help|dock_|undock)/i.test(prompt.trim());
+      const isHeartbeat = isHeartbeatPrompt(prompt);
+      const isSystemCommand = isSystemCommandPrompt(prompt);
 
       if (isHeartbeat || isSystemCommand) {
         log.info?.(`[memos-cloud] recall skipped: system event detected (heartbeat=${isHeartbeat}, command=${isSystemCommand}, prompt="${prompt.substring(0, 50)}...")`);
@@ -593,10 +609,10 @@ export default {
       const messages = event?.messages || [];
       const lastUserMsg = messages.slice().reverse().find(m => m?.role === "user");
       const lastUserContent = extractText(lastUserMsg?.content || "");
-      
-      const isHeartbeat = /Read HEARTBEAT\.md if it exists|reply HEARTBEAT_OK|\[OpenClaw heartbeat poll\]/i.test(lastUserContent);
-      const isSystemCommand = /^\/(new|reset|stop|status|help|dock_|undock)/i.test(lastUserContent.trim());
-      
+
+      const isHeartbeat = isHeartbeatPrompt(lastUserContent);
+      const isSystemCommand = isSystemCommandPrompt(lastUserContent);
+
       if (isHeartbeat || isSystemCommand) {
         log.info?.(`[memos-cloud] add skipped: system event detected (heartbeat=${isHeartbeat}, command=${isSystemCommand}, content="${lastUserContent.substring(0, 50)}...")`);
         return;
