@@ -194,48 +194,222 @@ export function buildAddMessagePayload(cfg, messages, ctx) {
   return payload;
 }
 
-function pickLastTurnMessages(messages, cfg) {
-  const lastUserIndex = messages
-    .map((m, idx) => ({ m, idx }))
-    .filter(({ m }) => m?.role === "user")
-    .map(({ idx }) => idx)
-    .pop();
+function convertAssistantMessage(msg, cfg) {
+  const contentArr = Array.isArray(msg.content)
+    ? msg.content
+    : msg.content
+      ? [{ type: "text", text: String(msg.content) }]
+      : [];
 
-  if (lastUserIndex === undefined) return [];
+  const textContent = contentArr
+    .filter((c) => c?.type === "text")
+    .map((c) => c.text || "")
+    .filter(Boolean)
+    .join("\n");
 
-  const slice = messages.slice(lastUserIndex);
-  const results = [];
+  const toolCallItems = contentArr.filter((c) => c?.type === "toolCall");
 
-  for (const msg of slice) {
-    if (!msg || !msg.role) continue;
-    if (msg.role === "user") {
-      const content = stripOpenClawInjectedPrefix(extractText(msg.content));
-      if (content) results.push({ role: "user", content: truncate(content, cfg.maxMessageChars) });
-      continue;
-    }
-    if (msg.role === "assistant" && cfg.includeAssistant) {
-      const content = extractText(msg.content);
-      if (content) results.push({ role: "assistant", content: truncate(content, cfg.maxMessageChars) });
-    }
+  const result = { role: "assistant" };
+
+  if (textContent) {
+    result.content = truncate(textContent, cfg.maxMessageChars);
   }
 
-  return results;
+  if (cfg.includeToolMemory && toolCallItems.length > 0) {
+    result.tool_calls = toolCallItems.map((tc) => ({
+      id: tc.id,
+      type: "function",
+      function: {
+        name: tc.name,
+        arguments: typeof tc.arguments === "string" ? tc.arguments : JSON.stringify(tc.arguments ?? {}),
+      },
+    }));
+  }
+
+  if (!result.content && !result.tool_calls) return null;
+  return result;
+}
+
+function safeStringify(value) {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return "";
+  }
+}
+
+// 把单个附件值（URL / data URI / 裸 base64）统一描述成可读 text：
+// - http(s):// / 其它协议 URL：[<kind>: <url>]
+// - data:<mediaType>;base64,...：[<kind> (<mediaType> base64, ~<size> chars)]
+// - 其它（视为裸 base64）：[<kind> (base64, ~<size> chars)]
+function describeAttachment(kind, value) {
+  const dataMatch = /^data:([^;,]+)/i.exec(value);
+  if (dataMatch) {
+    return `[${kind} (${dataMatch[1] || kind} base64, ~${value.length} chars)]`;
+  }
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
+    return `[${kind}: ${value}]`;
+  }
+  return `[${kind} (base64, ~${value.length} chars)]`;
+}
+
+// MemOS 是文本记忆服务，召回路径上图片/文件 block 几乎只有文本价值。
+// 这里把所有 block 一律归一成 [{type:"text", text}]，但**保留 URL 文字本身**：
+// - text block：透传文本（按 cfg.maxMessageChars 截头）
+// - URL 形态：输出 "[image: <url>]" / "[file: <url>]"，URL 作为可检索文字保留
+// - data URI / base64 形态：输出 "[image (<media_type> base64, ~<size> chars)]" 元数据描述，永不 inline base64
+// - 未识别 type：含 url 字段则 "[<type>: <url>]"，否则 JSON.stringify 兜底
+function normalizeToolResultContent(content, cfg) {
+  const blocks = [];
+
+  const pushText = (raw) => {
+    const text = truncate(String(raw ?? ""), cfg.maxMessageChars);
+    if (text) blocks.push({ type: "text", text });
+  };
+
+  // 解析所有协议下的 image 类 block，提取出统一的"附件值"再交给 describeAttachment 描述。
+  // 覆盖：
+  //   {type:"image_url", image_url:{url}} / {image_url:"<str>"} / 顶层 url   （OpenAI 风格）
+  //   {type:"image", data, media_type} / {type:"image", source:{data, media_type}} （Claude 风格）
+  //   {type:"image", url}                                                        （少见）
+  const tryPushImageBlock = (block) => {
+    const claudeData =
+      (block.source && typeof block.source === "object" && block.source.data) || block.data || "";
+    if (claudeData) {
+      const mediaType =
+        (block.source && typeof block.source === "object" && block.source.media_type) ||
+        block.media_type ||
+        block.mimeType ||
+        "image";
+      pushText(describeAttachment("image", `data:${mediaType};base64,${String(claudeData)}`));
+      return true;
+    }
+    const url =
+      (block.image_url && typeof block.image_url === "object" && block.image_url.url) ||
+      (typeof block.image_url === "string" ? block.image_url : "") ||
+      block.url ||
+      "";
+    if (!url) return false;
+    pushText(describeAttachment("image", String(url)));
+    return true;
+  };
+
+  // MemOS schema 标准 file block：{type:"file", file:{file_data}}，兼容顶层 file_data。
+  const tryPushFileBlock = (block) => {
+    const fileData =
+      (block.file && typeof block.file === "object" && block.file.file_data) ||
+      block.file_data ||
+      "";
+    if (!fileData) return false;
+    pushText(describeAttachment("file", String(fileData)));
+    return true;
+  };
+
+  const tryPushTypedBlock = (block) => {
+    if (!block || typeof block !== "object") return false;
+    if (block.type === "text") {
+      pushText(block.text);
+      return true;
+    }
+    if (block.type === "image_url" || block.type === "image") return tryPushImageBlock(block);
+    if (block.type === "file") return tryPushFileBlock(block);
+    return false;
+  };
+
+  // 未识别 type：有 url 字段则给可读占位，否则整体 stringify。
+  const fallbackSerialize = (block) => {
+    if (
+      block &&
+      typeof block === "object" &&
+      typeof block.type === "string" &&
+      typeof block.url === "string" &&
+      block.url
+    ) {
+      pushText(`[${block.type}: ${block.url}]`);
+      return;
+    }
+    const serialized = safeStringify(block);
+    if (serialized) pushText(serialized);
+  };
+
+  if (content == null || content === "") return blocks;
+
+  if (typeof content === "string") {
+    pushText(content);
+    return blocks;
+  }
+
+  if (Array.isArray(content)) {
+    for (const block of content) {
+      if (block == null) continue;
+      if (typeof block === "string") {
+        pushText(block);
+        continue;
+      }
+      if (typeof block !== "object") continue;
+      if (tryPushTypedBlock(block)) continue;
+      fallbackSerialize(block);
+    }
+    return blocks;
+  }
+
+  if (typeof content === "object") {
+    if (!tryPushTypedBlock(content)) {
+      fallbackSerialize(content);
+    }
+    return blocks;
+  }
+
+  return blocks;
+}
+
+function convertToolResultMessage(msg, cfg) {
+  const toolCallId = msg.toolCallId || msg.tool_call_id;
+  if (!toolCallId) return null;
+  const blocks = normalizeToolResultContent(msg.content, cfg);
+  if (blocks.length === 0) return null;
+  return {
+    role: "tool",
+    tool_call_id: toolCallId,
+    content: blocks,
+  };
+}
+
+// 把 OpenClaw 的单条原始消息转成 MemOS /add/message 接受的形态。
+// 三类 role 分发：user / assistant / toolResult，其它 role（system/...）直接丢弃返 null。
+function convertSessionMessage(msg, cfg) {
+  if (!msg || !msg.role) return null;
+  if (msg.role === "user") {
+    const content = stripOpenClawInjectedPrefix(extractText(msg.content));
+    if (!content) return null;
+    return { role: "user", content: truncate(content, cfg.maxMessageChars) };
+  }
+  if (msg.role === "assistant" && cfg.includeAssistant) {
+    return convertAssistantMessage(msg, cfg);
+  }
+  if (msg.role === "toolResult" && cfg.includeToolMemory) {
+    return convertToolResultMessage(msg, cfg);
+  }
+  return null;
+}
+
+function pickLastTurnMessages(messages, cfg) {
+  let lastUserIndex = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]?.role === "user") {
+      lastUserIndex = i;
+      break;
+    }
+  }
+  if (lastUserIndex < 0) return [];
+  return messages
+    .slice(lastUserIndex)
+    .map((m) => convertSessionMessage(m, cfg))
+    .filter(Boolean);
 }
 
 function pickFullSessionMessages(messages, cfg) {
-  const results = [];
-  for (const msg of messages) {
-    if (!msg || !msg.role) continue;
-    if (msg.role === "user") {
-      const content = stripOpenClawInjectedPrefix(extractText(msg.content));
-      if (content) results.push({ role: "user", content: truncate(content, cfg.maxMessageChars) });
-    }
-    if (msg.role === "assistant" && cfg.includeAssistant) {
-      const content = extractText(msg.content);
-      if (content) results.push({ role: "assistant", content: truncate(content, cfg.maxMessageChars) });
-    }
-  }
-  return results;
+  return messages.map((m) => convertSessionMessage(m, cfg)).filter(Boolean);
 }
 
 function truncate(text, maxLen) {
