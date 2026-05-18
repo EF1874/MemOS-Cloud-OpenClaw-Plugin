@@ -32,15 +32,20 @@ const MEMOS_SOURCE = "openclaw";
 // when a legitimate user message happens to mention these phrases.
 const HEARTBEAT_PROMPT_PATTERN =
   /^\s*(?:Read HEARTBEAT\.md if it exists\b|\[OpenClaw heartbeat poll\])/i;
-const SYSTEM_COMMAND_PATTERN = /^\/(?:new|reset|stop|status|help|dock_|undock)\b/i;
+const SYSTEM_COMMAND_PATTERN = /^\/(?:new|reset|clear|stop|status|help|dock_|undock)\b/i;
+const INTERNAL_SYSTEM_PROMPT_PATTERNS = [
+  /^A new session was started via \/new or \/reset\./i,
+  /^Based on this conversation, generate a short 1-2 word filename slug\b[\s\S]*\bReply with ONLY the slug\b/i,
+];
 
 function isHeartbeatPrompt(text) {
   return typeof text === "string" && HEARTBEAT_PROMPT_PATTERN.test(text);
 }
 
-function isSystemCommandPrompt(text) {
+export function isSystemCommandPrompt(text) {
   if (typeof text !== "string") return false;
-  return SYSTEM_COMMAND_PATTERN.test(text.trimStart());
+  const prompt = text.trimStart();
+  return SYSTEM_COMMAND_PATTERN.test(prompt) || INTERNAL_SYSTEM_PROMPT_PATTERNS.some((pattern) => pattern.test(prompt));
 }
 
 function warnMissingApiKey(log, context) {
