@@ -25,7 +25,13 @@ let lastCaptureTime = 0;
 const conversationCounters = new Map();
 const API_KEY_HELP_URL = "https://memos-dashboard.openmem.net/cn/apikeys/";
 const ENV_FILE_SEARCH_HINTS = ["~/.openclaw/.env", "~/.moltbot/.env", "~/.clawdbot/.env"];
-const MEMOS_SOURCE = "openclaw";
+const MEMOS_SOURCE = (() => {
+  const platform = process.platform;
+  if (platform === "win32") return "openclaw_win";
+  if (platform === "darwin") return "openclaw_mac";
+  if (platform === "linux") return "openclaw_linux";
+  return "openclaw";
+})();
 
 // Heartbeat prompts are always injected at the very beginning of the user
 // content by the host (OpenClaw). Anchoring at start prevents false positives
@@ -185,7 +191,7 @@ export function buildAddMessagePayload(cfg, messages, ctx) {
   if (cfg.tags?.length) payload.tags = cfg.tags;
 
   const info = {
-    source: "openclaw",
+    source: MEMOS_SOURCE,
     sessionKey: ctx?.sessionKey,
     agentId: ctx?.agentId,
     ...(cfg.info || {}),
