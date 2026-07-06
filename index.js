@@ -6,6 +6,7 @@ import {
   extractText,
   formatRecallHookResult,
   isAgentAllowed,
+  isOpenClawSystemPrompt,
   resolveAgentConfig,
   searchMemory,
   stripOpenClawInjectedPrefix,
@@ -413,6 +414,7 @@ function pickLastTurnMessages(messages, cfg) {
     }
   }
   if (lastUserIndex < 0) return [];
+  if (isOpenClawSystemPrompt(extractText(messages[lastUserIndex]?.content || ""))) return [];
   return messages
     .slice(lastUserIndex)
     .map((m) => convertSessionMessage(m, cfg))
@@ -420,7 +422,18 @@ function pickLastTurnMessages(messages, cfg) {
 }
 
 function pickFullSessionMessages(messages, cfg) {
-  return messages.map((m) => convertSessionMessage(m, cfg)).filter(Boolean);
+  const out = [];
+  let skipSystemTurn = false;
+  for (const message of messages) {
+    if (message?.role === "user") {
+      skipSystemTurn = isOpenClawSystemPrompt(extractText(message.content || ""));
+    } else if (skipSystemTurn) {
+      continue;
+    }
+    const converted = convertSessionMessage(message, cfg);
+    if (converted) out.push(converted);
+  }
+  return out;
 }
 
 function truncate(text, maxLen) {
@@ -735,9 +748,10 @@ export default {
       const prompt = event?.prompt || "";
       const isHeartbeat = isHeartbeatPrompt(prompt);
       const isSystemCommand = isSystemCommandPrompt(prompt);
+      const isSystemPrompt = isOpenClawSystemPrompt(prompt);
 
-      if (isHeartbeat || isSystemCommand) {
-        log.info?.(`[memos-cloud] recall skipped: system event detected (heartbeat=${isHeartbeat}, command=${isSystemCommand}, prompt="${prompt.substring(0, 50)}...")`);
+      if (isHeartbeat || isSystemCommand || isSystemPrompt) {
+        log.info?.(`[memos-cloud] recall skipped: system event detected (heartbeat=${isHeartbeat}, command=${isSystemCommand}, systemPrompt=${isSystemPrompt}, prompt="${prompt.substring(0, 50)}...")`);
         return;
       }
 
@@ -797,9 +811,10 @@ export default {
 
       const isHeartbeat = isHeartbeatPrompt(lastUserContent);
       const isSystemCommand = isSystemCommandPrompt(lastUserContent);
+      const isSystemPrompt = isOpenClawSystemPrompt(lastUserContent);
 
-      if (isHeartbeat || isSystemCommand) {
-        log.info?.(`[memos-cloud] add skipped: system event detected (heartbeat=${isHeartbeat}, command=${isSystemCommand}, content="${lastUserContent.substring(0, 50)}...")`);
+      if (isHeartbeat || isSystemCommand || isSystemPrompt) {
+        log.info?.(`[memos-cloud] add skipped: system event detected (heartbeat=${isHeartbeat}, command=${isSystemCommand}, systemPrompt=${isSystemPrompt}, content="${lastUserContent.substring(0, 50)}...")`);
         return;
       }
 
