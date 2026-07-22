@@ -120,9 +120,13 @@ function readJsonFile(path) {
 }
 
 function tagInfo(ref) {
-  const text = git(["show", "--no-patch", "--format=%H%n%ci%n%s", `${ref}^{commit}`]);
+  const text = git(["show", "--no-patch", "--format=%H%n%ci%n%s", commitRef(ref)]);
   const [sha = "", date = "", subject = ""] = text.split("\n");
   return { tag: ref, sha, date, subject };
+}
+
+function commitRef(ref) {
+  return `${ref}^{commit}`;
 }
 
 function refInfo(ref, tagLabel) {
@@ -317,7 +321,7 @@ export function collectEvidence({ targetVersion, currentTag, previousTag, curren
     current_ref: currentRef,
     diff_range: diffRange,
     target_version: displayVersion(targetVersion),
-    git_ref: git(["rev-parse", "--short=12", currentRef]),
+    git_ref: git(["rev-parse", "--short=12", commitRef(currentRef)]),
     previous: tagInfo(previousTag),
     current: refInfo(currentRef, currentTag),
     commits,
