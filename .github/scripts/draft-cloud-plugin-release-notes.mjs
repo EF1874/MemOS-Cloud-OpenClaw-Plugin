@@ -120,7 +120,7 @@ function readJsonFile(path) {
 }
 
 function tagInfo(ref) {
-  const text = git(["show", "--no-patch", "--format=%H%n%ci%n%s", ref]);
+  const text = git(["show", "--no-patch", "--format=%H%n%ci%n%s", `${ref}^{commit}`]);
   const [sha = "", date = "", subject = ""] = text.split("\n");
   return { tag: ref, sha, date, subject };
 }
