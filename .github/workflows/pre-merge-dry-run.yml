@@ -13,7 +13,8 @@ on:
       - ".github/scripts/retry.sh"
       - "package.json"
       - "scripts/generate-telemetry-credentials.cjs"
-      - "lib/arms-reporter.js"
+      - "lib/**"
+      - "test/*.test.mjs"
       - ".gitignore"
 
 permissions:
