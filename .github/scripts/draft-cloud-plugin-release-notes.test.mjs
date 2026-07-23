@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,9 +8,11 @@ import test from "node:test";
 import {
   cleanVersion,
   categoryHintsForCommits,
+  compareSemver,
   draftForInspection,
   evidenceForInspection,
   ensureSourceHint,
+  findPreviousTag,
   postprocessDraftFromEvidence,
   RELEASE_NOTE_GUIDANCE,
   reportExternalFailureFromEnv,
@@ -25,6 +28,14 @@ const evidence = {
   current_tag: "v0.1.19",
   target_version: "v0.1.19",
 };
+
+function runGit(cwd, args) {
+  return execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
+}
 
 function response(status, body) {
   return {
@@ -43,6 +54,43 @@ test("normalizes cloud plugin versions and tags", () => {
   assert.equal(cleanVersion("v0.1.19"), "0.1.19");
   assert.equal(versionFromTag("v0.1.19"), "0.1.19");
   assert.equal(versionFromTag("openclaw-cloud-plugin-v0.1.19"), "");
+});
+
+test("compares SemVer prerelease identifiers numerically and ignores build metadata", () => {
+  assert.equal(compareSemver("1.0.0-beta.10", "1.0.0-beta.9") > 0, true);
+  assert.equal(compareSemver("1.0.0-beta.20", "1.0.0-beta.19") > 0, true);
+  assert.equal(compareSemver("1.0.0-beta.1", "1.0.0-beta.alpha") < 0, true);
+  assert.equal(compareSemver("1.0.0", "1.0.0-rc.1") > 0, true);
+  assert.equal(compareSemver("1.0.0+build.2", "1.0.0+build.1"), 0);
+  assert.equal(compareSemver("1.0.0-beta.1+build.2", "1.0.0-beta.1+build.1"), 0);
+});
+
+test("finds previous tags using SemVer precedence for prerelease numbers", () => {
+  const previousCwd = process.cwd();
+  const dir = mkdtempSync(join(tmpdir(), "openclaw-cloud-tags-"));
+
+  try {
+    runGit(dir, ["init"]);
+    runGit(dir, ["config", "user.email", "test@example.invalid"]);
+    runGit(dir, ["config", "user.name", "Test User"]);
+    writeFileSync(join(dir, "README.md"), "tags\n");
+    runGit(dir, ["add", "README.md"]);
+    runGit(dir, ["commit", "-m", "seed"]);
+    runGit(dir, ["tag", "v1.0.0"]);
+    runGit(dir, ["tag", "v1.0.1+build.1"]);
+    for (let i = 1; i <= 19; i++) {
+      runGit(dir, ["tag", `v1.0.0-beta.${i}`]);
+    }
+
+    process.chdir(dir);
+    assert.equal(findPreviousTag("1.0.0-beta.10", "v1.0.0-beta.10"), "v1.0.0-beta.9");
+    assert.equal(findPreviousTag("1.0.0-beta.11", "v1.0.0-beta.11"), "v1.0.0-beta.10");
+    assert.equal(findPreviousTag("1.0.0-beta.20", "v1.0.0-beta.20"), "v1.0.0-beta.19");
+    assert.equal(findPreviousTag("1.0.1+build.2", "v1.0.1+build.2"), "v1.0.0");
+  } finally {
+    process.chdir(previousCwd);
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("uses an existing release tag as the evidence endpoint", () => {

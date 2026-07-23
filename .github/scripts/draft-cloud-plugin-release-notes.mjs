@@ -4,6 +4,9 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
+import { cleanVersion, compareSemver, parseSemver } from "../../lib/semver.js";
+
+export { cleanVersion, compareSemver, parseSemver };
 
 export const PRODUCT_ID = "openclaw-cloud-plugin";
 export const PRODUCT_TITLE = {
@@ -62,11 +65,6 @@ function git(args, options = {}) {
   }).trim();
 }
 
-export function cleanVersion(raw) {
-  const value = String(raw || "").trim();
-  return value.startsWith("v") ? value.slice(1) : value;
-}
-
 export function displayVersion(raw) {
   const value = cleanVersion(raw);
   return value ? `v${value}` : "";
@@ -76,31 +74,6 @@ export function versionFromTag(tag) {
   const value = String(tag || "").trim();
   if (!value.startsWith(CURRENT_TAG_PREFIX)) return "";
   return cleanVersion(value.slice(CURRENT_TAG_PREFIX.length));
-}
-
-export function parseSemver(version) {
-  const cleaned = cleanVersion(version);
-  const match = cleaned.match(/^(\d+)\.(\d+)\.(\d+)(?:[-+]([0-9A-Za-z.-]+))?$/);
-  if (!match) return null;
-  return {
-    major: Number(match[1]),
-    minor: Number(match[2]),
-    patch: Number(match[3]),
-    prerelease: match[4] || "",
-  };
-}
-
-export function compareSemver(a, b) {
-  const av = parseSemver(a);
-  const bv = parseSemver(b);
-  if (!av || !bv) return String(a).localeCompare(String(b));
-  for (const key of ["major", "minor", "patch"]) {
-    if (av[key] !== bv[key]) return av[key] - bv[key];
-  }
-  if (av.prerelease === bv.prerelease) return 0;
-  if (!av.prerelease) return 1;
-  if (!bv.prerelease) return -1;
-  return av.prerelease.localeCompare(bv.prerelease);
 }
 
 function gitShowJson(ref, path) {
