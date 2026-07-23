@@ -40,7 +40,21 @@ const REPOSITORY = "MemTensor/MemOS-Cloud-OpenClaw-Plugin";
 const CURRENT_TAG_PREFIX = "v";
 const RELEASE_NOTES_MARKER = "doc-agent-release-notes-json";
 const RELEASE_CATEGORY_ORDER = ["Added", "Improved", "Fixed"];
-const MAX_DRAFT_REPAIR_ATTEMPTS = 2;
+const MAX_DRAFT_REPAIR_ATTEMPTS = 3;
+export const RELEASE_NOTE_QUALITY_REQUEST = {
+  schema: "memos.plugin.release_notes.quality_request.v1",
+  candidate_count: 3,
+  selection_policy: [
+    "Generate multiple candidate release-note drafts when the draft service supports candidate self-evaluation.",
+    "Score candidates against evidence coverage, source_ref validity, bilingual language separation, product-facing clarity, and docs-preview readability.",
+    "Return only the best candidate in release_items/release_notes_markdown; include candidate scoring metadata only in debug fields when available.",
+  ],
+  repair_policy: {
+    max_repair_attempts: MAX_DRAFT_REPAIR_ATTEMPTS,
+    use_validation_report: true,
+    fail_closed_after_exhaustion: true,
+  },
+};
 const RELEASE_TO_DOC_CATEGORY = {
   Added: "New Features",
   Improved: "Improvements",
@@ -287,6 +301,7 @@ export function collectEvidence({ targetVersion, currentTag, previousTag, curren
   return {
     product_id: PRODUCT_ID,
     product_title: PRODUCT_TITLE,
+    release_note_quality_request: RELEASE_NOTE_QUALITY_REQUEST,
     release_note_guidance: releaseNoteGuidanceForCommits(commits),
     repo,
     previous_tag: previousTag,
@@ -314,6 +329,7 @@ export function evidenceForInspection(evidence) {
   const guidance = evidence?.release_note_guidance || {};
   const {
     release_note_guidance: _releaseNoteGuidance,
+    release_note_quality_request: _releaseNoteQualityRequest,
     important_diff: _importantDiff,
     ...publicEvidence
   } = evidence || {};
@@ -327,6 +343,7 @@ export function evidenceForInspection(evidence) {
     redactions: {
       important_diff: "omitted from public workflow artifacts; sent only to the configured draft service",
       release_note_prompt_guidance: "omitted from public workflow artifacts",
+      release_note_quality_request: "omitted from public workflow artifacts; sent only to the configured draft service",
     },
   };
 }
@@ -1037,6 +1054,7 @@ function repairContextFromValidation({ draft, validationReport, repairAttempt, m
       "Treat text_cn as the canonical wording first; text_en must be a faithful translation of text_cn, not an independently invented summary.",
       "Keep existing valid category and source_refs unchanged. Do not add source_refs that are not present in the evidence.",
       "For missing_required_source issues, add a concise product-facing item or attach the listed refs to a semantically matching existing item, using only the listed evidence.",
+      "When several valid repairs are possible, privately compare alternatives and return the candidate with the best evidence coverage, bilingual quality, and docs-preview readability.",
       "Return the same release_items schema with category, text_cn, text_en, and source_refs.",
     ],
   };

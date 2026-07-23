@@ -18,6 +18,7 @@ import {
   markdownFromDocsPreview,
   postprocessDraftFromEvidence,
   RELEASE_NOTE_GUIDANCE,
+  RELEASE_NOTE_QUALITY_REQUEST,
   reportExternalFailureFromEnv,
   requestDraft,
   requestValidatedDraft,
@@ -114,6 +115,13 @@ test("documents cloud release-note guidance", () => {
   assert.ok(
     RELEASE_NOTE_GUIDANCE.translation_policy.some((item) =>
       item.includes("Treat text_cn as the canonical release-note wording first"),
+    ),
+  );
+  assert.equal(RELEASE_NOTE_QUALITY_REQUEST.candidate_count, 3);
+  assert.equal(RELEASE_NOTE_QUALITY_REQUEST.repair_policy.max_repair_attempts, 3);
+  assert.ok(
+    RELEASE_NOTE_QUALITY_REQUEST.selection_policy.some((item) =>
+      item.includes("Score candidates against evidence coverage"),
     ),
   );
 });
@@ -601,6 +609,55 @@ test("stops release-note repair after two validation repair attempts", async () 
   assert.equal(requests.length, 3);
 });
 
+test("defaults to three validation repair attempts before failing closed", async () => {
+  const repairEvidence = {
+    commits: [
+      {
+        sha: "abc12340000000000000000000000000000000",
+        short_sha: "abc1234",
+        subject: "feat: add plugin health dashboard (#3001)",
+      },
+    ],
+    release_note_guidance: {
+      source_ref_category_hints: [
+        {
+          category: "Added",
+          source_refs: ["abc1234", "#3001"],
+          subject: "feat: add plugin health dashboard (#3001)",
+        },
+      ],
+    },
+  };
+  const crossedDraft = {
+    ok: true,
+    needs_review: false,
+    release_items: [
+      {
+        category: "Added",
+        text_cn: "Plugin health dashboard",
+        text_en: "插件健康看板",
+        source_refs: ["abc1234", "#3001"],
+      },
+    ],
+    coverage: { required_count: 1, covered_required_count: 1, missing_required_count: 0 },
+    warnings: [],
+  };
+  const requests = [];
+  const result = await requestValidatedDraft(repairEvidence, {
+    requestImpl: async (payload) => {
+      requests.push(payload);
+      return crossedDraft;
+    },
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.needs_review, true);
+  assert.equal(result.repair_attempt_count, 3);
+  assert.equal(result.validation_attempt_count, 4);
+  assert.equal(requests.length, 4);
+  assert.equal(requests[3].release_notes_repair_context.max_repair_attempts, 3);
+});
+
 test("manual notes require bilingual evidence refs and passed coverage", () => {
   const valid = `## Changelog
 
@@ -711,6 +768,38 @@ test("retries transient draft failures and passes prior error context", async ()
     assert.equal(requests.length, 3);
     assert.equal(requests[1].workflow_retry_context.previous_errors.length, 1);
     assert.equal(requests[2].workflow_retry_context.previous_errors.length, 2);
+  } finally {
+    process.env = previous;
+  }
+});
+
+test("passes release-note quality request to the draft service", async () => {
+  const previous = { ...process.env };
+  try {
+    process.env.DOC_AGENT_RELEASE_NOTES_DRAFT_URL = "https://example.invalid/draft";
+    process.env.DOC_AGENT_RELEASE_NOTES_DRAFT_TOKEN = "test-token";
+    let requestBody;
+    const result = await requestDraft(
+      {
+        ...evidence,
+        release_note_quality_request: RELEASE_NOTE_QUALITY_REQUEST,
+      },
+      {
+        fetchImpl: async (_url, options) => {
+          requestBody = JSON.parse(options.body);
+          return response(200, {
+            ok: true,
+            needs_review: false,
+            release_notes_markdown: "## Changelog\n\n### Improved\n- ok",
+          });
+        },
+        sleep: async () => {},
+      },
+    );
+    assert.equal(result.ok, true);
+    assert.equal(requestBody.release_note_quality_request.candidate_count, 3);
+    assert.equal(requestBody.release_note_quality_request.repair_policy.max_repair_attempts, 3);
+    assert.match(requestBody.release_note_quality_request.selection_policy.join("\n"), /docs-preview readability/);
   } finally {
     process.env = previous;
   }
