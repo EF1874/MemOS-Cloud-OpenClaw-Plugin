@@ -59,6 +59,21 @@ on:
         required: false
         type: boolean
         default: false
+      artifact_name:
+        description: "Inspection artifact name. Intended for reusable dry-run matrix callers."
+        required: false
+        type: string
+        default: "openclaw-cloud-plugin-release-inspection"
+      expected_previous_tag:
+        description: "Optional assertion for dry-run callers that validate a known historical range."
+        required: false
+        type: string
+        default: ""
+      expected_current_ref:
+        description: "Optional assertion for dry-run callers that validate a known historical evidence ref."
+        required: false
+        type: string
+        default: ""
 
 concurrency:
   group: openclaw-cloud-plugin-publish
@@ -172,6 +187,8 @@ jobs:
           RELEASE_NOTES_FILE: ${{ steps.release_notes.outputs.release_notes_file }}
           EVIDENCE_FILE: ${{ steps.release_notes.outputs.evidence_file }}
           DRAFT_FILE: ${{ steps.release_notes.outputs.draft_file }}
+          DOCS_PREVIEW_FILE: ${{ steps.release_notes.outputs.docs_preview_file }}
+          DOCS_PREVIEW_MARKDOWN_FILE: ${{ steps.release_notes.outputs.docs_preview_markdown_file }}
           DRAFT_USED: ${{ steps.release_notes.outputs.draft_used }}
           PREVIOUS_TAG: ${{ steps.release_notes.outputs.previous_tag }}
           CURRENT_TAG: ${{ steps.release_notes.outputs.current_tag }}
@@ -180,6 +197,8 @@ jobs:
           MISSING_REQUIRED_COUNT: ${{ steps.release_notes.outputs.missing_required_count }}
           VALIDATION_ATTEMPT_COUNT: ${{ steps.release_notes.outputs.validation_attempt_count }}
           REPAIR_ATTEMPT_COUNT: ${{ steps.release_notes.outputs.repair_attempt_count }}
+          EXPECTED_PREVIOUS_TAG: ${{ inputs.expected_previous_tag }}
+          EXPECTED_CURRENT_REF: ${{ inputs.expected_current_ref }}
         run: |
           set -euo pipefail
           inspection_dir="${RUNNER_TEMP}/openclaw-cloud-plugin-release-inspection"
@@ -187,6 +206,15 @@ jobs:
 
           if [ -z "${RELEASE_NOTES_FILE}" ] || [ ! -s "${RELEASE_NOTES_FILE}" ]; then
             echo "::error::Release notes file was not generated."
+            exit 1
+          fi
+
+          if [ -n "${EXPECTED_PREVIOUS_TAG:-}" ] && [ "${PREVIOUS_TAG:-}" != "${EXPECTED_PREVIOUS_TAG}" ]; then
+            echo "::error::Expected previous_tag=${EXPECTED_PREVIOUS_TAG}, got ${PREVIOUS_TAG:-n/a}."
+            exit 1
+          fi
+          if [ -n "${EXPECTED_CURRENT_REF:-}" ] && [ "${CURRENT_REF:-}" != "${EXPECTED_CURRENT_REF}" ]; then
+            echo "::error::Expected current_ref=${EXPECTED_CURRENT_REF}, got ${CURRENT_REF:-n/a}."
             exit 1
           fi
 
@@ -201,8 +229,24 @@ jobs:
               exit 1
             fi
             cp "${DRAFT_FILE}" "${inspection_dir}/release-notes-draft.json"
+            if [ -z "${DOCS_PREVIEW_FILE}" ] || [ ! -s "${DOCS_PREVIEW_FILE}" ]; then
+              echo "::error::Docs preview JSON file was not generated."
+              exit 1
+            fi
+            if [ -z "${DOCS_PREVIEW_MARKDOWN_FILE}" ] || [ ! -s "${DOCS_PREVIEW_MARKDOWN_FILE}" ]; then
+              echo "::error::Docs preview Markdown file was not generated."
+              exit 1
+            fi
+            cp "${DOCS_PREVIEW_FILE}" "${inspection_dir}/docs-preview.json"
+            cp "${DOCS_PREVIEW_MARKDOWN_FILE}" "${inspection_dir}/docs-preview.md"
           elif [ -n "${DRAFT_FILE}" ] && [ -s "${DRAFT_FILE}" ]; then
             cp "${DRAFT_FILE}" "${inspection_dir}/release-notes-draft.json"
+            if [ -n "${DOCS_PREVIEW_FILE}" ] && [ -s "${DOCS_PREVIEW_FILE}" ]; then
+              cp "${DOCS_PREVIEW_FILE}" "${inspection_dir}/docs-preview.json"
+            fi
+            if [ -n "${DOCS_PREVIEW_MARKDOWN_FILE}" ] && [ -s "${DOCS_PREVIEW_MARKDOWN_FILE}" ]; then
+              cp "${DOCS_PREVIEW_MARKDOWN_FILE}" "${inspection_dir}/docs-preview.md"
+            fi
           fi
 
           {
@@ -229,6 +273,10 @@ jobs:
             if [ -f "${inspection_dir}/release-notes-draft.json" ]; then
               echo "- release-notes-draft.json"
             fi
+            if [ -f "${inspection_dir}/docs-preview.md" ]; then
+              echo "- docs-preview.md"
+              echo "- docs-preview.json"
+            fi
           } > "${inspection_dir}/README.md"
 
           {
@@ -245,12 +293,18 @@ jobs:
             echo "- repair_attempt_count: \`${REPAIR_ATTEMPT_COUNT:-n/a}\`"
             echo
             echo "Download the workflow artifact \`openclaw-cloud-plugin-release-inspection\` to review release-notes.md, release-notes-draft.json, and redacted evidence.json."
+            if [ -f "${inspection_dir}/docs-preview.md" ]; then
+              echo
+              echo "### MemOS-Docs preview"
+              echo
+              sed -n '1,120p' "${inspection_dir}/docs-preview.md"
+            fi
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload release inspection artifact
         uses: actions/upload-artifact@v4
         with:
-          name: openclaw-cloud-plugin-release-inspection
+          name: ${{ inputs.artifact_name || 'openclaw-cloud-plugin-release-inspection' }}
           path: ${{ runner.temp }}/openclaw-cloud-plugin-release-inspection
           if-no-files-found: error
 

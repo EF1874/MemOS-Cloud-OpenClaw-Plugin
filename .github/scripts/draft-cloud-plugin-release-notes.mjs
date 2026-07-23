@@ -337,6 +337,7 @@ export function draftForInspection(draft) {
     needs_review: Boolean(draft?.needs_review),
     confidence: draft?.confidence || "",
     release_items: Array.isArray(draft?.release_items) ? draft.release_items : [],
+    docs_categories: draft?.docs_categories || { cn: {}, en: {} },
     coverage: {
       needs_review: Boolean(draft?.coverage?.needs_review),
       required_count: Number(draft?.coverage?.required_count || 0),
@@ -380,9 +381,9 @@ function normalizeReleaseCategory(value) {
 
 function normalizeSourceRef(value) {
   const text = String(value || "").trim().replace(/^[`[(\s]+|[`)\],.;\s]+$/g, "");
-  if (/^\d{2,}$/.test(text)) return `#${text}`;
   if (/^#\d+$/.test(text)) return text;
   if (/^[a-fA-F0-9]{7,40}$/.test(text)) return text.toLowerCase();
+  if (/^\d{2,}$/.test(text)) return `#${text}`;
   return "";
 }
 
@@ -465,6 +466,308 @@ function groupKeysForItem(item, refToGroup) {
     if (!keys.includes(key)) keys.push(key);
   }
   return keys;
+}
+
+function subjectsForItem(item, index) {
+  return groupKeysForItem(item, index.refToGroup)
+    .map((key) => index.groups.get(key)?.subject || "")
+    .filter(Boolean)
+    .join(" ");
+}
+
+function evidenceTextForItem(item, index) {
+  return `${subjectsForItem(item, index)}\n${item.text_cn || ""}\n${item.text_en || ""}`;
+}
+
+function knownReleaseItemsForItem(item, index, { allowSplit = true } = {}) {
+  if (allowSplit && item.source_refs.length > 1) {
+    const splitItems = item.source_refs.flatMap((ref) =>
+      knownReleaseItemsForItem({ ...item, source_refs: [ref] }, index, { allowSplit: false }),
+    );
+    const changedByEvidence = splitItems.some(
+      (split) =>
+        split.category !== item.category ||
+        split.text_cn !== item.text_cn ||
+        split.text_en !== item.text_en,
+    );
+    if (changedByEvidence) return dedupeReleaseItems(splitItems);
+  }
+
+  const subjectBlob = subjectsForItem(item, index).toLowerCase();
+  const blob = evidenceTextForItem(item, index).toLowerCase();
+  const refs = [...item.source_refs];
+  const rewrite = (category, textCn, textEn) => ({
+    ...item,
+    category,
+    text_cn: textCn,
+    text_en: textEn,
+    source_refs: refs,
+  });
+
+  const semverPattern = /semver|prerelease|previous tag|compare release tags|beta\.10|beta\.20|update checker|check-update/;
+  const configUpdatePattern = /config ui update check|update check|version status|host-specific update|restart command|copy.*restart/;
+  const memorySourcePattern = /memos_source|memory source|platform|windows|macos|linux|darwin/;
+  const hookPattern = /activation hooks|capability declaration|hook policy|before_prompt_build|recall hook|add memory hook|hook registration/;
+  const recallFilterPattern = /recall filter|payload sanit|query strip|prompt sanit|memory pollution/;
+  const toolMemoryPattern = /tool memory|tool_memories|assistant\.tool_calls|toolresult/;
+  const memoryFilteringPattern = /buildmemorysections|memory section handling|filtering logic|relevance-threshold|relevance threshold/;
+  const systemNotePattern = /system note|leading system notes|interruption notes/;
+  const systemEventSkipPattern = /implement system event detection|skip processing for heartbeat|heartbeat and command events|heartbeat polls|system commands/;
+  const systemEventRefactorPattern = /refactor system event detection|extend system command detection|system-command detection|internal prompt patterns/;
+  const telemetryPattern = /telemetry credentials|memos_arms|arms|rum|observability|generate telemetry credentials/;
+  const systemPromptPattern =
+    /system prompt detection and handling|scheduled task|scheduled reminder|background command|system event|isforcedsystemmessage|system prompt/;
+
+  if (/recall hook registration.*before_prompt_build|before_prompt_build.*newer openclaw|version compatibility/.test(subjectBlob)) {
+    return [
+      rewrite(
+        "Added",
+        "**Recall Hook 兼容新版 OpenClaw**：当宿主版本支持阶段化 Hook 时，召回逻辑自动迁移至 `before_prompt_build`，旧版宿主继续兼容 `before_agent_start`。",
+        "**Recall Hook compatibility for modern OpenClaw hosts**: Moves recall logic to `before_prompt_build` on hosts that support phased hooks while keeping `before_agent_start` compatibility for legacy hosts.",
+      ),
+    ];
+  }
+
+  if (systemEventSkipPattern.test(subjectBlob)) {
+    return [
+      rewrite(
+        "Added",
+        "**系统事件自动跳过**：召回与写入阶段自动识别并跳过心跳探测、系统命令等系统事件，保持记忆数据纯净。",
+        "**Automatic system-event skipping**: Detects and skips heartbeat polls, system commands, and other system events during recall and write phases to keep memory records clean.",
+      ),
+    ];
+  }
+
+  if (toolMemoryPattern.test(subjectBlob)) {
+    const items = [
+      rewrite(
+        "Added",
+        "**工具记忆全链路支持**：召回阶段注入 `<tool_memories>`，写入阶段支持 `assistant.tool_calls` 与 `toolResult` 消息转换，统一写入 MemOS 标准消息结构。",
+        "**End-to-end Tool Memory support**: Injects `<tool_memories>` during recall and converts `assistant.tool_calls` plus `toolResult` messages into the standard MemOS message structure during write.",
+      ),
+    ];
+    if (memoryFilteringPattern.test(subjectBlob)) {
+      items.push(
+        rewrite(
+          "Improved",
+          "**记忆过滤逻辑精简**：整合记忆片段构建中的重复过滤判断，降低无关内容进入上下文的概率。",
+          "**Memory filtering cleanup**: Consolidates duplicated filtering logic while building memory sections to reduce irrelevant context injection.",
+        ),
+      );
+    }
+    return items;
+  }
+
+  if (systemNotePattern.test(subjectBlob)) {
+    return [
+      rewrite(
+        "Added",
+        "**System Note 前缀自动剥离**：自动剔除上轮 Agent 中断提示词，提升召回查询与入库数据准确性。",
+        "**System Note prefix stripping**: Removes previous-run interruption notes to improve recall queries and stored-memory accuracy.",
+      ),
+    ];
+  }
+
+  if (/extend system command detection|include 'clear' command|internal prompt patterns/.test(subjectBlob)) {
+    return [
+      rewrite(
+        "Improved",
+        "**内部提示识别增强**：扩展 `clear` 命令和内部提示模式识别，减少系统命令类内容进入记忆流程。",
+        "**Internal prompt detection**: Extends `clear` command and internal prompt pattern detection to keep system-command content out of the memory flow.",
+      ),
+    ];
+  }
+
+  if (systemEventRefactorPattern.test(subjectBlob)) {
+    return [
+      rewrite(
+        "Improved",
+        "**系统事件检测重构**：提取心跳、系统命令和内部提示识别逻辑，并降低正常用户消息误判概率。",
+        "**System-event detection refactor**: Extracts heartbeat, system-command, and internal-prompt detection helpers to reduce false positives on normal user messages.",
+      ),
+    ];
+  }
+
+  const subjectFirstRules = [
+    [semverPattern, () => [
+      rewrite(
+        "Fixed",
+        "**版本比较边界修复**：使用标准 SemVer precedence 选择上一版本并检测更新，避免 beta.10、beta.20 等预发布版本被错误排序。",
+        "**Version comparison boundaries**: Uses SemVer precedence for previous-tag selection and update checks so beta.10, beta.20, and similar prereleases sort correctly.",
+      ),
+    ]],
+    [configUpdatePattern, () => [
+      rewrite(
+        "Improved",
+        "**配置页新增更新检查**：可查看版本状态，并复制对应宿主的更新重启命令。",
+        "**Update checks in settings**: Shows version status and lets users copy host-specific update or restart commands.",
+      ),
+    ]],
+    [memorySourcePattern, () => [
+      rewrite(
+        "Added",
+        "**跨平台记忆来源识别**：自动区分 Windows、macOS、Linux 的记忆数据。",
+        "**Platform-aware memory source labeling**: Distinguishes Windows, macOS, and Linux memory data automatically.",
+      ),
+    ]],
+  ];
+
+  for (const [pattern, buildItems] of subjectFirstRules) {
+    if (pattern.test(subjectBlob)) return buildItems();
+  }
+
+  if (hookPattern.test(subjectBlob)) {
+    if (/before_prompt_build|hook registration|registration/.test(subjectBlob)) {
+      return [
+        rewrite(
+          "Fixed",
+          "**Hook 注册兼容性修复**：在支持的 OpenClaw 宿主上正确注册回忆 hook，避免提示构建阶段缺失记忆召回。",
+          "**Hook registration compatibility**: Registers recall hooks correctly on supported OpenClaw hosts so memory recall is available during prompt construction.",
+        ),
+      ];
+    }
+    return [
+      rewrite(
+        "Added",
+        "**插件 Hook 能力声明**：补充插件激活与记忆相关 hook 声明，让宿主能够按权限策略启用云端记忆能力。",
+        "**Plugin hook capability declarations**: Adds activation and memory hook declarations so hosts can enable cloud memory through the permission policy.",
+      ),
+    ];
+  }
+
+  if (recallFilterPattern.test(subjectBlob)) {
+    return [
+      rewrite(
+        "Improved",
+        "**召回过滤与提示清洗优化**：增强召回请求和提示内容清洗，降低系统消息或无关参数进入记忆流程的概率。",
+        "**Recall filtering and prompt sanitization**: Improves recall-request and prompt cleanup to reduce system-message or irrelevant-parameter leakage into memory flows.",
+      ),
+    ];
+  }
+
+  if (telemetryPattern.test(subjectBlob)) {
+    return [
+      rewrite(
+        "Improved",
+        "**遥测凭据打包校验**：发布前校验遥测凭据生成状态，避免半配置密钥导致观测能力缺失或包内容不完整。",
+        "**Telemetry credential packaging**: Validates telemetry credential generation before release to avoid partial secret configuration and incomplete observability packaging.",
+      ),
+    ];
+  }
+
+  if (systemPromptPattern.test(subjectBlob) || systemPromptPattern.test(blob)) {
+    const items = [];
+    if (
+      /system prompt detection and handling|scheduled task|scheduled reminder|background command|system event|isforcedsystemmessage/.test(
+        blob,
+      )
+    ) {
+      items.push(
+        rewrite(
+          "Improved",
+          "**系统事件过滤增强**：自动跳过定时任务、计划提醒和后台命令结果，减少记忆污染。",
+          "**System-event filtering**: Skips scheduled tasks, reminders, and background command results to keep memory cleaner.",
+        ),
+      );
+    }
+    if (/system prompt detection and handling|system prompt|single-line|flattened|false positive|prompt detection/.test(blob)) {
+      items.push(
+        rewrite(
+          "Improved",
+          "**系统提示识别优化**：兼容单行压缩内容并降低普通消息误判概率。",
+          "**System prompt detection**: Supports flattened single-line prompts and reduces false positives on regular messages.",
+        ),
+      );
+    }
+    if (items.length > 0) return items;
+  }
+
+  if (semverPattern.test(blob)) {
+    return [
+      rewrite(
+        "Fixed",
+        "**版本比较边界修复**：使用标准 SemVer precedence 选择上一版本并检测更新，避免 beta.10、beta.20 等预发布版本被错误排序。",
+        "**Version comparison boundaries**: Uses SemVer precedence for previous-tag selection and update checks so beta.10, beta.20, and similar prereleases sort correctly.",
+      ),
+    ];
+  }
+
+  if (configUpdatePattern.test(blob)) {
+    return [
+      rewrite(
+        "Improved",
+        "**配置页新增更新检查**：可查看版本状态，并复制对应宿主的更新重启命令。",
+        "**Update checks in settings**: Shows version status and lets users copy host-specific update or restart commands.",
+      ),
+    ];
+  }
+
+  if (memorySourcePattern.test(blob)) {
+    return [
+      rewrite(
+        "Added",
+        "**跨平台记忆来源识别**：自动区分 Windows、macOS、Linux 的记忆数据。",
+        "**Platform-aware memory source labeling**: Distinguishes Windows, macOS, and Linux memory data automatically.",
+      ),
+    ];
+  }
+
+  if (hookPattern.test(blob)) {
+    if (/before_prompt_build|hook registration|registration/.test(blob)) {
+      return [
+        rewrite(
+          "Fixed",
+          "**Hook 注册兼容性修复**：在支持的 OpenClaw 宿主上正确注册回忆 hook，避免提示构建阶段缺失记忆召回。",
+          "**Hook registration compatibility**: Registers recall hooks correctly on supported OpenClaw hosts so memory recall is available during prompt construction.",
+        ),
+      ];
+    }
+    return [
+      rewrite(
+        "Added",
+        "**插件 Hook 能力声明**：补充插件激活与记忆相关 hook 声明，让宿主能够按权限策略启用云端记忆能力。",
+        "**Plugin hook capability declarations**: Adds activation and memory hook declarations so hosts can enable cloud memory through the permission policy.",
+      ),
+    ];
+  }
+
+  if (recallFilterPattern.test(blob)) {
+    return [
+      rewrite(
+        "Improved",
+        "**召回过滤与提示清洗优化**：增强召回请求和提示内容清洗，降低系统消息或无关参数进入记忆流程的概率。",
+        "**Recall filtering and prompt sanitization**: Improves recall-request and prompt cleanup to reduce system-message or irrelevant-parameter leakage into memory flows.",
+      ),
+    ];
+  }
+
+  if (telemetryPattern.test(blob)) {
+    return [
+      rewrite(
+        "Improved",
+        "**遥测凭据打包校验**：发布前校验遥测凭据生成状态，避免半配置密钥导致观测能力缺失或包内容不完整。",
+        "**Telemetry credential packaging**: Validates telemetry credential generation before release to avoid partial secret configuration and incomplete observability packaging.",
+      ),
+    ];
+  }
+
+  return [item];
+}
+
+function expandKnownReleaseItems(items, index) {
+  let expandedKnownItems = 0;
+  const expanded = [];
+  for (const item of items) {
+    const knownItems = knownReleaseItemsForItem(item, index);
+    if (knownItems.length !== 1 || knownItems[0] !== item) {
+      expandedKnownItems += Math.max(1, knownItems.length);
+    }
+    expanded.push(...knownItems);
+  }
+  return {
+    items: dedupeReleaseItems(expanded),
+    expandedKnownItems,
+  };
 }
 
 function bestHintCategoryForItem(item, index) {
@@ -870,6 +1173,8 @@ export function postprocessDraftFromEvidence(draft, evidence) {
       return { ...item, category };
     }),
   );
+  const expanded = expandKnownReleaseItems(items, index);
+  items = expanded.items;
 
   const coverage = coverageFromReleaseItems(evidence, draft, items, index);
   const languageIssues = languageIssuesFromReleaseItems(items);
@@ -882,15 +1187,17 @@ export function postprocessDraftFromEvidence(draft, evidence) {
     removed_duplicate_source_refs: deduped.removedDuplicateRefs,
     dropped_empty_source_items: deduped.droppedItems,
     reclassified_items: reclassifiedItems,
+    expanded_known_items: expanded.expandedKnownItems,
     final_item_count: items.length,
   };
   const warnings = Array.isArray(draft.warnings) ? [...draft.warnings] : [];
   if (
     postprocess.removed_duplicate_source_refs > 0 ||
     postprocess.dropped_empty_source_items > 0 ||
-    postprocess.reclassified_items > 0
+    postprocess.reclassified_items > 0 ||
+    postprocess.expanded_known_items > 0
   ) {
-    warnings.push("release notes were postprocessed to dedupe source_refs and apply evidence category hints");
+    warnings.push("release notes were postprocessed to dedupe source_refs, apply evidence category hints, and normalize known cloud plugin topics");
   }
   if (languageIssues.length > 0) {
     warnings.push("release notes language validation failed; manual review is required");
@@ -911,21 +1218,133 @@ export function postprocessDraftFromEvidence(draft, evidence) {
   };
 }
 
+function previewDateFromPublishedAt(value) {
+  const text = String(value || "").trim();
+  if (!text) return "<GitHub Release published_at>";
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return "<GitHub Release published_at>";
+  return date.toISOString().slice(0, 10);
+}
+
+export function docsPreviewFromDraft(draft, { targetVersion, publishedAt = "" } = {}) {
+  const version = displayVersion(targetVersion || draft?.target_version || "");
+  const date = previewDateFromPublishedAt(publishedAt);
+  const docsCategories = draft?.docs_categories || { cn: {}, en: {} };
+  const buildEntry = (locale) => ({
+    name: version,
+    date,
+    products: {
+      plugin: Object.fromEntries(
+        Object.entries(docsCategories[locale] || {}).map(([category, items]) => [
+          category,
+          [
+            {
+              type: locale === "cn" ? PRODUCT_TITLE.zh : PRODUCT_TITLE.en,
+              changedInfo: items,
+            },
+          ],
+        ]),
+      ),
+    },
+  });
+  return {
+    schema: "memos.plugin.docs_preview.v1",
+    product_id: PRODUCT_ID,
+    repo: REPOSITORY,
+    version,
+    date,
+    date_source: publishedAt ? "provided published_at" : "GitHub Release published_at at publish time",
+    docs_files: {
+      cn: "content/cn/plugin-changelog.yml",
+      en: "content/en/plugin-changelog.yml",
+    },
+    entries: {
+      cn: buildEntry("cn"),
+      en: buildEntry("en"),
+    },
+  };
+}
+
+export function markdownFromDocsPreview(preview) {
+  const lines = [
+    "# MemOS-Docs Plugin Changelog Preview",
+    "",
+    `- product_id: ${preview.product_id}`,
+    `- version: ${preview.version}`,
+    `- date: ${preview.date}`,
+    `- zh file: ${preview.docs_files.cn}`,
+    `- en file: ${preview.docs_files.en}`,
+  ];
+  for (const [locale, title] of [
+    ["cn", "中文预览"],
+    ["en", "English Preview"],
+  ]) {
+    lines.push("");
+    lines.push(`## ${title}`);
+    const plugin = preview.entries[locale]?.products?.plugin || {};
+    const categories = Object.keys(plugin);
+    if (categories.length === 0) {
+      lines.push("");
+      lines.push("- No plugin changelog items would be rendered.");
+      continue;
+    }
+    for (const category of categories) {
+      lines.push("");
+      lines.push(`### ${category}`);
+      for (const group of plugin[category] || []) {
+        lines.push("");
+        lines.push(`- type: ${group.type}`);
+        for (const item of group.changedInfo || []) {
+          lines.push(`  - ${item}`);
+        }
+      }
+    }
+  }
+  return `${lines.join("\n").trim()}\n`;
+}
+
+function releaseNotesPayloadFromMarkdown(text) {
+  const match = text.match(/<!--\s*doc-agent-release-notes-json\s*\n([\s\S]*?)\n-->/);
+  if (!match) {
+    fail("Manual release notes must include the doc-agent-release-notes-json evidence block.");
+  }
+  try {
+    return JSON.parse(match[1]);
+  } catch {
+    fail("Manual release notes contain invalid doc-agent-release-notes-json.");
+  }
+}
+
+function draftFromReleaseNotesMarkdown(notes) {
+  const payload = releaseNotesPayloadFromMarkdown(notes);
+  const items = Array.isArray(payload?.items) ? payload.items.map(normalizeReleaseItem).filter(Boolean) : [];
+  const coverage = payload?.coverage || {};
+  const { releaseCategories, docsCategories } = categoriesFromReleaseItems(items);
+  return {
+    ok: items.length > 0 && coverage.needs_review === false,
+    needs_review: coverage.needs_review !== false,
+    confidence: "manual",
+    release_items: items,
+    release_categories: releaseCategories,
+    docs_categories: docsCategories,
+    coverage,
+    warnings: [],
+    language_issues: languageIssuesFromReleaseItems(items),
+    postprocess: {
+      applied: false,
+      source: "manual_release_notes",
+      final_item_count: items.length,
+    },
+    release_notes_markdown: notes,
+  };
+}
+
 export function validateManualNotes(notes) {
   const text = String(notes || "").trim();
   if (!/^## Changelog\s*$/m.test(text)) {
     fail("Manual release notes must contain a '## Changelog' heading.");
   }
-  const match = text.match(/<!--\s*doc-agent-release-notes-json\s*\n([\s\S]*?)\n-->/);
-  if (!match) {
-    fail("Manual release notes must include the doc-agent-release-notes-json evidence block.");
-  }
-  let payload;
-  try {
-    payload = JSON.parse(match[1]);
-  } catch {
-    fail("Manual release notes contain invalid doc-agent-release-notes-json.");
-  }
+  const payload = releaseNotesPayloadFromMarkdown(text);
   if (!Array.isArray(payload?.items) || payload.items.length === 0) {
     fail("Manual release notes evidence block must contain non-empty items.");
   }
@@ -948,6 +1367,10 @@ export function validateManualNotes(notes) {
 
 function isRetryableStatus(status) {
   return status === 408 || status === 425 || status === 429 || status >= 500;
+}
+
+function hasStructuredDraftItems(payload) {
+  return Array.isArray(payload?.release_items) && payload.release_items.map(normalizeReleaseItem).some(Boolean);
 }
 
 function cleanError(value) {
@@ -1086,6 +1509,12 @@ export async function requestDraft(
         const coverage = payload.coverage ? JSON.stringify(payload.coverage) : "";
         const warnings = Array.isArray(payload.warnings) ? payload.warnings.join("; ") : "";
         const message = `Release notes draft needs review. ${coverage} ${warnings}`.trim();
+        if (hasStructuredDraftItems(payload)) {
+          warn(
+            `${message} Continuing with local validation and repair because the draft service returned structured release_items.`,
+          );
+          return payload;
+        }
         if (serverAttempts.length >= 3) {
           await reportFailure({
             evidence,
@@ -1100,7 +1529,7 @@ export async function requestDraft(
         }
         fail(message);
       }
-      if (!String(payload.release_notes_markdown || "").trim()) {
+      if (!String(payload.release_notes_markdown || "").trim() && !hasStructuredDraftItems(payload)) {
         fail("Release-notes draft service returned an empty release_notes_markdown.");
       }
       return payload;
@@ -1136,8 +1565,20 @@ export async function main() {
 
   const manualNotes = String(process.env.MANUAL_RELEASE_NOTES || "").trim();
   if (manualNotes) {
-    writeFileSync(notesPath, ensureSourceHint(validateManualNotes(manualNotes)), "utf8");
+    const validManualNotes = ensureSourceHint(validateManualNotes(manualNotes));
+    const manualDraft = draftFromReleaseNotesMarkdown(validManualNotes);
+    const draftPath = join(tmpdir(), `openclaw-cloud-plugin-${targetVersion}-release-notes-draft.json`);
+    const docsPreview = docsPreviewFromDraft(manualDraft, { targetVersion });
+    const docsPreviewPath = join(tmpdir(), `openclaw-cloud-plugin-${targetVersion}-docs-preview.json`);
+    const docsPreviewMarkdownPath = join(tmpdir(), `openclaw-cloud-plugin-${targetVersion}-docs-preview.md`);
+    writeFileSync(notesPath, validManualNotes, "utf8");
+    writeFileSync(draftPath, JSON.stringify(draftForInspection(manualDraft), null, 2), "utf8");
+    writeFileSync(docsPreviewPath, JSON.stringify(docsPreview, null, 2), "utf8");
+    writeFileSync(docsPreviewMarkdownPath, markdownFromDocsPreview(docsPreview), "utf8");
     appendOutput("release_notes_file", notesPath);
+    appendOutput("draft_file", draftPath);
+    appendOutput("docs_preview_file", docsPreviewPath);
+    appendOutput("docs_preview_markdown_file", docsPreviewMarkdownPath);
     appendOutput("draft_used", "false");
     console.log(`Using manually provided release notes: ${notesPath}`);
     return;
@@ -1158,12 +1599,19 @@ export async function main() {
     fail(`Postprocessed release notes require review: ${JSON.stringify(draft.validation_report || draft.coverage || {})}`);
   }
   const draftPath = join(tmpdir(), `openclaw-cloud-plugin-${targetVersion}-release-notes-draft.json`);
+  const docsPreview = docsPreviewFromDraft(draft, { targetVersion });
+  const docsPreviewPath = join(tmpdir(), `openclaw-cloud-plugin-${targetVersion}-docs-preview.json`);
+  const docsPreviewMarkdownPath = join(tmpdir(), `openclaw-cloud-plugin-${targetVersion}-docs-preview.md`);
   writeFileSync(draftPath, JSON.stringify(draftForInspection(draft), null, 2), "utf8");
+  writeFileSync(docsPreviewPath, JSON.stringify(docsPreview, null, 2), "utf8");
+  writeFileSync(docsPreviewMarkdownPath, markdownFromDocsPreview(docsPreview), "utf8");
   writeFileSync(notesPath, ensureSourceHint(draft.release_notes_markdown), "utf8");
 
   appendOutput("release_notes_file", notesPath);
   appendOutput("evidence_file", evidencePath);
   appendOutput("draft_file", draftPath);
+  appendOutput("docs_preview_file", docsPreviewPath);
+  appendOutput("docs_preview_markdown_file", docsPreviewMarkdownPath);
   appendOutput("draft_used", "true");
   appendOutput("previous_tag", previousTag);
   appendOutput("current_tag", currentTag);

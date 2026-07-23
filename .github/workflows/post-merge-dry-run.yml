@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - ".github/workflows/release.yml"
+      - ".github/workflows/historical-dry-run.yml"
       - ".github/workflows/pre-merge-dry-run.yml"
       - ".github/workflows/post-merge-dry-run.yml"
       - ".github/scripts/draft-cloud-plugin-release-notes.mjs"
