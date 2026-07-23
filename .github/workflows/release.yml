@@ -23,6 +23,10 @@ on:
         required: true
         type: boolean
         default: true
+      publish_confirmation:
+        description: "Required only when dry_run=false. Must exactly equal: PUBLISH v<version>"
+        required: false
+        default: ""
       recover_existing_npm_release:
         description: "Explicitly allow reconstructing GitHub metadata for a version already on npm. Keep false for normal releases."
         required: true
@@ -54,6 +58,11 @@ on:
         required: false
         type: boolean
         default: true
+      publish_confirmation:
+        description: "Required only when dry_run=false. Must exactly equal: PUBLISH v<version>"
+        required: false
+        type: string
+        default: ""
       recover_existing_npm_release:
         description: "Allow reconstructing a missing tag/Release for an npm version. Keep false for normal releases."
         required: false
@@ -103,6 +112,8 @@ jobs:
         env:
           RELEASE_VERSION: ${{ inputs.version }}
           NPM_DIST_TAG: ${{ inputs.tag }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          PUBLISH_CONFIRMATION: ${{ inputs.publish_confirmation }}
         run: |
           set -euo pipefail
           if [[ "${RELEASE_VERSION}" == [vV]* ]]; then
@@ -121,6 +132,7 @@ jobs:
             echo "::error::tag must be a valid npm dist-tag."
             exit 1
           fi
+          node .github/scripts/validate-release-confirmation.mjs
 
       - name: Install dependencies
         shell: bash
@@ -130,7 +142,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bash .github/scripts/retry.sh --attempts 2 --label "release notes tests" -- node --test .github/scripts/draft-cloud-plugin-release-notes.test.mjs
+          bash .github/scripts/retry.sh --attempts 2 --label "release workflow script tests" -- node --test .github/scripts/*.test.mjs
           if compgen -G "test/*.test.mjs" >/dev/null; then
             bash .github/scripts/retry.sh --attempts 2 --label "plugin tests" -- node --test test/*.test.mjs
           else
