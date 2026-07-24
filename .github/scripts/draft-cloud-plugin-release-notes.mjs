@@ -145,22 +145,29 @@ export function resolveCurrentRef(
   return "HEAD";
 }
 
-function listProductTags() {
-  try {
-    const remotes = git(["remote"]).split("\n").map((item) => item.trim()).filter(Boolean);
-    if (remotes.includes("origin")) {
-      git(["fetch", "--tags", "--force", "origin"], { stdio: ["ignore", "ignore", "ignore"] });
-    }
-  } catch {
-    warn("Failed to fetch tags from origin; using locally available tags.");
-  }
-
+function localProductTags() {
   return git(["tag", "--list", "v*"])
     .split("\n")
     .map((tag) => tag.trim())
     .filter(Boolean)
     .map((tag) => ({ tag, version: versionFromTag(tag) }))
     .filter((item) => item.version && parseSemver(item.version));
+}
+
+function listProductTags() {
+  const existingTags = localProductTags();
+  try {
+    const remotes = git(["remote"]).split("\n").map((item) => item.trim()).filter(Boolean);
+    if (remotes.includes("origin")) {
+      git(["fetch", "--tags", "--force", "origin"], { stdio: ["ignore", "ignore", "ignore"] });
+    }
+  } catch {
+    if (existingTags.length === 0) {
+      warn("Failed to fetch tags from origin; using locally available tags.");
+    }
+  }
+
+  return localProductTags();
 }
 
 export function findPreviousTag(targetVersion, currentTag) {
