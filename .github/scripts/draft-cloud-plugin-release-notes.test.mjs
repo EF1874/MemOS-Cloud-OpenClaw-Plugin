@@ -665,7 +665,7 @@ test("manual notes require bilingual evidence refs and passed coverage", () => {
 - cloud memory
 
 <!-- doc-agent-release-notes-json
-{"items":[{"text_cn":"云端记忆","text_en":"Cloud memory","source_refs":["abc1234"]}],"coverage":{"needs_review":false}}
+{"items":[{"category":"Added","text_cn":"云端记忆","text_en":"Cloud memory","source_refs":["abc1234"]}],"coverage":{"needs_review":false}}
 -->`;
   assert.equal(validateManualNotes(valid), valid);
   assert.match(ensureSourceHint(valid), /source-id=openclaw-cloud-plugin/);
@@ -678,7 +678,19 @@ test("manual notes require bilingual evidence refs and passed coverage", () => {
 - cloud memory
 
 <!-- doc-agent-release-notes-json
-{"items":[{"text_cn":"Cloud memory","text_en":"云端记忆","source_refs":["abc1234"]}],"coverage":{"needs_review":false}}
+{"items":[{"text_cn":"云端记忆","text_en":"Cloud memory","source_refs":["abc1234"]}],"coverage":{"needs_review":false}}
+-->`),
+    /category, text_cn, text_en, and valid source_refs/,
+  );
+  assert.throws(
+    () =>
+      validateManualNotes(`## Changelog
+
+### Added
+- cloud memory
+
+<!-- doc-agent-release-notes-json
+{"items":[{"category":"Added","text_cn":"Cloud memory","text_en":"云端记忆","source_refs":["abc1234"]}],"coverage":{"needs_review":false}}
 -->`),
     /text_cn must contain Chinese/,
   );

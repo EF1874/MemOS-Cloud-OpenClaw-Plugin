@@ -1369,7 +1369,11 @@ export function validateManualNotes(notes) {
   if (payload?.coverage?.needs_review !== false) {
     fail("Manual release notes evidence coverage must explicitly set needs_review=false.");
   }
-  for (const item of payload.items) {
+  const normalizedItems = payload.items.map(normalizeReleaseItem);
+  if (normalizedItems.some((item) => !item)) {
+    fail("Every manual release-note item must include category, text_cn, text_en, and valid source_refs.");
+  }
+  for (const item of normalizedItems) {
     if (!item?.text_cn || !item?.text_en || !Array.isArray(item?.source_refs) || item.source_refs.length === 0) {
       fail("Every manual release-note item must include text_cn, text_en, and source_refs.");
     }
