@@ -180,6 +180,15 @@ test("real publishes are branch-gated and reusable callers are immutable dry run
 });
 
 test("dry-run callers use least privilege and do not inherit all repository secrets", () => {
+  const releaseWorkflow = readFileSync(
+    new URL("../workflows/release.yml", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    releaseWorkflow,
+    /NPM_TOKEN:\s*\n\s*description:[^\n]*\n\s*required: false/,
+  );
+
   const preMerge = readFileSync(
     new URL("../workflows/pre-merge-dry-run.yml", import.meta.url),
     "utf8",

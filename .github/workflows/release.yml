@@ -121,6 +121,9 @@ on:
       MEMOS_ARMS_ENV:
         description: "Optional telemetry environment."
         required: false
+      NPM_TOKEN:
+        description: "npm publish token. Never pass this to reusable dry-run callers."
+        required: false
 
 concurrency:
   group: openclaw-cloud-plugin-publish
