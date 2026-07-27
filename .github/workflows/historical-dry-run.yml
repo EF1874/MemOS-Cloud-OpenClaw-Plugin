@@ -4,15 +4,16 @@ on:
   workflow_dispatch:
 
 permissions:
-  # Must match the reusable release workflow; dry_run=true keeps every mutating
-  # publish, tag, Release, and PR step skipped.
-  contents: write
-  pull-requests: write
+  # Historical integration may use Doc Agent secrets only from the protected
+  # default branch and never receives a write-capable token.
+  contents: read
 
 jobs:
   historical-dry-run:
     name: ${{ matrix.expected_previous_tag }}..${{ matrix.expected_current_ref }}
-    if: ${{ github.repository == 'MemTensor/MemOS-Cloud-OpenClaw-Plugin' }}
+    if: ${{ github.repository == 'MemTensor/MemOS-Cloud-OpenClaw-Plugin' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -40,4 +41,10 @@ jobs:
       artifact_name: openclaw-cloud-plugin-release-inspection-${{ matrix.version }}
       expected_previous_tag: ${{ matrix.expected_previous_tag }}
       expected_current_ref: ${{ matrix.expected_current_ref }}
-    secrets: inherit
+    secrets:
+      DOC_AGENT_RELEASE_NOTES_DRAFT_URL: ${{ secrets.DOC_AGENT_RELEASE_NOTES_DRAFT_URL }}
+      DOC_AGENT_RELEASE_NOTES_DRAFT_TOKEN: ${{ secrets.DOC_AGENT_RELEASE_NOTES_DRAFT_TOKEN }}
+      DOC_AGENT_RELEASE_FAILURE_URL: ${{ secrets.DOC_AGENT_RELEASE_FAILURE_URL }}
+      MEMOS_ARMS_ENDPOINT: ${{ secrets.MEMOS_ARMS_ENDPOINT }}
+      MEMOS_ARMS_PID: ${{ secrets.MEMOS_ARMS_PID }}
+      MEMOS_ARMS_ENV: ${{ secrets.MEMOS_ARMS_ENV }}

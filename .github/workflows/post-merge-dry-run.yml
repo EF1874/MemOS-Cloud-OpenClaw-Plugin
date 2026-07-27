@@ -23,14 +23,15 @@ on:
       - ".gitignore"
 
 permissions:
-  # Must match the reusable release workflow; dry_run=true keeps every mutating
-  # publish, tag, Release, and PR step skipped.
-  contents: write
-  pull-requests: write
+  # Trusted main integration still calls the real Doc Agent draft endpoint,
+  # but the reusable workflow cannot elevate this read-only token.
+  contents: read
 
 jobs:
   dry-run:
     if: ${{ github.repository == 'MemTensor/MemOS-Cloud-OpenClaw-Plugin' }}
+    permissions:
+      contents: read
     uses: ./.github/workflows/release.yml
     with:
       version: "0.1.19"
@@ -39,4 +40,10 @@ jobs:
       release_notes: ""
       dry_run: true
       recover_existing_npm_release: false
-    secrets: inherit
+    secrets:
+      DOC_AGENT_RELEASE_NOTES_DRAFT_URL: ${{ secrets.DOC_AGENT_RELEASE_NOTES_DRAFT_URL }}
+      DOC_AGENT_RELEASE_NOTES_DRAFT_TOKEN: ${{ secrets.DOC_AGENT_RELEASE_NOTES_DRAFT_TOKEN }}
+      DOC_AGENT_RELEASE_FAILURE_URL: ${{ secrets.DOC_AGENT_RELEASE_FAILURE_URL }}
+      MEMOS_ARMS_ENDPOINT: ${{ secrets.MEMOS_ARMS_ENDPOINT }}
+      MEMOS_ARMS_PID: ${{ secrets.MEMOS_ARMS_PID }}
+      MEMOS_ARMS_ENV: ${{ secrets.MEMOS_ARMS_ENV }}

@@ -102,6 +102,25 @@ on:
         required: false
         type: string
         default: ""
+    secrets:
+      DOC_AGENT_RELEASE_NOTES_DRAFT_URL:
+        description: "Doc Agent release-note draft endpoint."
+        required: false
+      DOC_AGENT_RELEASE_NOTES_DRAFT_TOKEN:
+        description: "Bearer token for the Doc Agent draft endpoint."
+        required: false
+      DOC_AGENT_RELEASE_FAILURE_URL:
+        description: "Optional exhausted-failure reporting endpoint."
+        required: false
+      MEMOS_ARMS_ENDPOINT:
+        description: "Optional telemetry endpoint injected into the package."
+        required: false
+      MEMOS_ARMS_PID:
+        description: "Optional telemetry project identifier."
+        required: false
+      MEMOS_ARMS_ENV:
+        description: "Optional telemetry environment."
+        required: false
 
 concurrency:
   group: openclaw-cloud-plugin-publish

@@ -178,3 +178,38 @@ test("real publishes are branch-gated and reusable callers are immutable dry run
     assert.doesNotMatch(workflow, /dry_run: false/);
   }
 });
+
+test("dry-run callers use least privilege and do not inherit all repository secrets", () => {
+  const preMerge = readFileSync(
+    new URL("../workflows/pre-merge-dry-run.yml", import.meta.url),
+    "utf8",
+  );
+  assert.match(preMerge, /permissions:\s*\n\s*contents: read/);
+  assert.match(preMerge, /release_notes: \|/);
+  assert.match(preMerge, /doc-agent-release-notes-json/);
+  assert.doesNotMatch(preMerge, /\$\{\{\s*secrets\./);
+  assert.doesNotMatch(preMerge, /secrets: inherit/);
+  assert.doesNotMatch(preMerge, /contents: write/);
+  assert.doesNotMatch(preMerge, /pull-requests: write/);
+
+  for (const name of [
+    "post-merge-dry-run.yml",
+    "historical-dry-run.yml",
+  ]) {
+    const workflow = readFileSync(
+      new URL(`../workflows/${name}`, import.meta.url),
+      "utf8",
+    );
+    assert.match(workflow, /permissions:\s*\n(?:\s*#[^\n]*\n)*\s*contents: read/);
+    assert.doesNotMatch(workflow, /secrets: inherit/);
+    assert.doesNotMatch(workflow, /NPM_TOKEN/);
+    assert.doesNotMatch(workflow, /contents: write/);
+    assert.doesNotMatch(workflow, /pull-requests: write/);
+  }
+
+  const historical = readFileSync(
+    new URL("../workflows/historical-dry-run.yml", import.meta.url),
+    "utf8",
+  );
+  assert.match(historical, /github\.event\.repository\.default_branch/);
+});
