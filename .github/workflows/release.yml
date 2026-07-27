@@ -46,84 +46,6 @@ on:
           - thirteen_items
           - too_long
           - manual_notes_missing_payload
-  workflow_call:
-    inputs:
-      version:
-        description: "Version to publish or dry-run (e.g. 0.1.19 or 0.1.20-beta.1)"
-        required: true
-        type: string
-      tag:
-        description: "npm dist-tag (latest for production, beta/next/alpha for testing)"
-        required: false
-        type: string
-        default: "latest"
-      git_ref:
-        description: "Git ref to build from. Leave blank to use the caller ref."
-        required: false
-        type: string
-        default: ""
-      release_notes:
-        description: "Optional evidence-backed Markdown. Leave blank to draft it from git evidence."
-        required: false
-        type: string
-        default: ""
-      dry_run:
-        description: "Build, validate, and generate inspection artifacts without publishing or changing GitHub."
-        required: false
-        type: boolean
-        default: true
-      publish_confirmation:
-        description: "Required only when dry_run=false. Must exactly equal: PUBLISH v<version>"
-        required: false
-        type: string
-        default: ""
-      recover_existing_npm_release:
-        description: "Backfill a missing tag/Release from npm gitHead without republishing. Keep false for normal releases."
-        required: false
-        type: boolean
-        default: false
-      fault_case:
-        description: "Dry-run-only release-note fault injection."
-        required: false
-        type: string
-        default: "none"
-      artifact_name:
-        description: "Inspection artifact name. Intended for reusable dry-run matrix callers."
-        required: false
-        type: string
-        default: "openclaw-cloud-plugin-release-inspection"
-      expected_previous_tag:
-        description: "Optional assertion for dry-run callers that validate a known historical range."
-        required: false
-        type: string
-        default: ""
-      expected_current_ref:
-        description: "Optional assertion for dry-run callers that validate a known historical evidence ref."
-        required: false
-        type: string
-        default: ""
-    secrets:
-      DOC_AGENT_RELEASE_NOTES_DRAFT_URL:
-        description: "Doc Agent release-note draft endpoint."
-        required: false
-      DOC_AGENT_RELEASE_NOTES_DRAFT_TOKEN:
-        description: "Bearer token for the Doc Agent draft endpoint."
-        required: false
-      DOC_AGENT_RELEASE_FAILURE_URL:
-        description: "Optional exhausted-failure reporting endpoint."
-        required: false
-      MEMOS_ARMS_ENDPOINT:
-        description: "Optional telemetry endpoint injected into the package."
-        required: false
-      MEMOS_ARMS_PID:
-        description: "Optional telemetry project identifier."
-        required: false
-      MEMOS_ARMS_ENV:
-        description: "Optional telemetry environment."
-        required: false
-      NPM_TOKEN:
-        description: "npm publish token. Never pass this to reusable dry-run callers."
-        required: false
 
 concurrency:
   group: openclaw-cloud-plugin-publish
@@ -142,6 +64,7 @@ jobs:
         with:
           ref: ${{ inputs.git_ref || github.ref }}
           fetch-depth: 0
+          persist-credentials: ${{ inputs.dry_run != true }}
 
       - uses: actions/setup-node@v7
         with:
@@ -378,8 +301,8 @@ jobs:
           MISSING_REQUIRED_COUNT: ${{ steps.release_notes.outputs.missing_required_count }}
           VALIDATION_ATTEMPT_COUNT: ${{ steps.release_notes.outputs.validation_attempt_count }}
           REPAIR_ATTEMPT_COUNT: ${{ steps.release_notes.outputs.repair_attempt_count }}
-          EXPECTED_PREVIOUS_TAG: ${{ inputs.expected_previous_tag }}
-          EXPECTED_CURRENT_REF: ${{ inputs.expected_current_ref }}
+          EXPECTED_PREVIOUS_TAG: ""
+          EXPECTED_CURRENT_REF: ""
         run: |
           set -euo pipefail
           inspection_dir="${RUNNER_TEMP}/openclaw-cloud-plugin-release-inspection"
@@ -492,7 +415,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ inputs.artifact_name || 'openclaw-cloud-plugin-release-inspection' }}
+          name: openclaw-cloud-plugin-release-inspection
           path: ${{ runner.temp }}/openclaw-cloud-plugin-release-inspection
           if-no-files-found: error
 

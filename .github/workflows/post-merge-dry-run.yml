@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - ".github/workflows/release.yml"
+      - ".github/workflows/release-dry-run.yml"
       - ".github/workflows/historical-dry-run.yml"
       - ".github/workflows/pre-merge-dry-run.yml"
       - ".github/workflows/post-merge-dry-run.yml"
@@ -23,8 +24,8 @@ on:
       - ".gitignore"
 
 permissions:
-  # Trusted main integration still calls the real Doc Agent draft endpoint,
-  # but the reusable workflow cannot elevate this read-only token.
+  # Trusted main integration can call the Doc Agent draft endpoint, while the
+  # reusable inspection workflow keeps the GitHub token read-only.
   contents: read
 
 jobs:
@@ -32,7 +33,7 @@ jobs:
     if: ${{ github.repository == 'MemTensor/MemOS-Cloud-OpenClaw-Plugin' }}
     permissions:
       contents: read
-    uses: ./.github/workflows/release.yml
+    uses: ./.github/workflows/release-dry-run.yml
     with:
       version: "0.1.19"
       tag: "latest"

@@ -184,16 +184,31 @@ test("dry-run callers use least privilege and do not inherit all repository secr
     new URL("../workflows/release.yml", import.meta.url),
     "utf8",
   );
+  const dryRunWorkflow = readFileSync(
+    new URL("../workflows/release-dry-run.yml", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(releaseWorkflow, /workflow_call:/);
+  assert.match(releaseWorkflow, /NODE_AUTH_TOKEN: \$\{\{ secrets\.NPM_TOKEN \}\}/);
   assert.match(
     releaseWorkflow,
-    /NPM_TOKEN:\s*\n\s*description:[^\n]*\n\s*required: false/,
+    /persist-credentials: \$\{\{ inputs\.dry_run != true \}\}/,
   );
+  assert.match(dryRunWorkflow, /workflow_call:/);
+  assert.match(dryRunWorkflow, /permissions:\s*\n\s*contents: read/);
+  assert.match(dryRunWorkflow, /persist-credentials: false/);
+  assert.doesNotMatch(dryRunWorkflow, /NPM_TOKEN/);
+  assert.doesNotMatch(dryRunWorkflow, /npm publish/);
+  assert.doesNotMatch(dryRunWorkflow, /gh release/);
+  assert.doesNotMatch(dryRunWorkflow, /contents: write/);
+  assert.doesNotMatch(dryRunWorkflow, /pull-requests: write/);
 
   const preMerge = readFileSync(
     new URL("../workflows/pre-merge-dry-run.yml", import.meta.url),
     "utf8",
   );
   assert.match(preMerge, /permissions:\s*\n\s*contents: read/);
+  assert.match(preMerge, /uses: \.\/\.github\/workflows\/release-dry-run\.yml/);
   assert.match(preMerge, /release_notes: \|/);
   assert.match(preMerge, /doc-agent-release-notes-json/);
   assert.doesNotMatch(preMerge, /\$\{\{\s*secrets\./);
@@ -210,6 +225,7 @@ test("dry-run callers use least privilege and do not inherit all repository secr
       "utf8",
     );
     assert.match(workflow, /permissions:\s*\n(?:\s*#[^\n]*\n)*\s*contents: read/);
+    assert.match(workflow, /uses: \.\/\.github\/workflows\/release-dry-run\.yml/);
     assert.doesNotMatch(workflow, /secrets: inherit/);
     assert.doesNotMatch(workflow, /NPM_TOKEN/);
     assert.doesNotMatch(workflow, /contents: write/);

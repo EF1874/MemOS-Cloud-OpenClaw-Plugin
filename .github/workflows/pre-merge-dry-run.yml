@@ -6,6 +6,7 @@ on:
       - "docs-sync/**"
     paths:
       - ".github/workflows/release.yml"
+      - ".github/workflows/release-dry-run.yml"
       - ".github/workflows/historical-dry-run.yml"
       - ".github/workflows/pre-merge-dry-run.yml"
       - ".github/workflows/post-merge-dry-run.yml"
@@ -23,8 +24,8 @@ on:
       - ".gitignore"
 
 permissions:
-  # Branch code is intentionally validated without repository secrets and with
-  # a token that the called release workflow cannot elevate.
+  # Branch code is validated without repository secrets. The reusable
+  # inspection workflow is read-only and cannot publish or modify GitHub.
   contents: read
 
 jobs:
@@ -44,7 +45,7 @@ jobs:
     if: ${{ github.repository == 'MemTensor/MemOS-Cloud-OpenClaw-Plugin' }}
     permissions:
       contents: read
-    uses: ./.github/workflows/release.yml
+    uses: ./.github/workflows/release-dry-run.yml
     with:
       version: "0.1.19"
       tag: "latest"
