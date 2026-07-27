@@ -420,7 +420,18 @@ function appendOutput(name, value) {
 
 export function ensureSourceHint(notes) {
   const hint = `<!-- doc-agent: source-id=${PRODUCT_ID} -->`;
-  return notes.includes("doc-agent: source-id=") ? notes : `${notes.trim()}\n\n${hint}\n`;
+  const sourceIds = [
+    ...String(notes || "").matchAll(
+      /<!--\s*doc-agent:\s*source-id=([A-Za-z0-9._-]+)\s*-->/g,
+    ),
+  ].map((match) => match[1]);
+  if (sourceIds.length === 0) return `${notes.trim()}\n\n${hint}\n`;
+  if (sourceIds.length !== 1 || sourceIds[0] !== PRODUCT_ID) {
+    fail(
+      `Release notes must contain exactly one Doc Agent source id ${PRODUCT_ID}; found ${sourceIds.join(", ") || "none"}.`,
+    );
+  }
+  return notes;
 }
 
 function normalizeReleaseCategory(value) {

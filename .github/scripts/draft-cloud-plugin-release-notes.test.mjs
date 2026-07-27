@@ -898,6 +898,20 @@ test("manual notes require bilingual evidence refs and passed coverage", () => {
 -->`;
   assert.equal(validateManualNotes(valid), valid);
   assert.match(ensureSourceHint(valid), /source-id=openclaw-cloud-plugin/);
+  assert.throws(
+    () =>
+      ensureSourceHint(
+        `${valid}\n<!-- doc-agent: source-id=test-openclaw-cloud-plugin -->`,
+      ),
+    /exactly one Doc Agent source id openclaw-cloud-plugin/,
+  );
+  assert.throws(
+    () =>
+      ensureSourceHint(
+        `${valid}\n<!-- doc-agent: source-id=openclaw-local-plugin -->`,
+      ),
+    /exactly one Doc Agent source id openclaw-cloud-plugin/,
+  );
   assert.throws(() => validateManualNotes("## Changelog\n- unsupported"), /evidence block/);
   assert.throws(
     () =>

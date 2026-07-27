@@ -11,6 +11,8 @@ on:
       - ".github/workflows/post-merge-dry-run.yml"
       - ".github/scripts/draft-cloud-plugin-release-notes.mjs"
       - ".github/scripts/draft-cloud-plugin-release-notes.test.mjs"
+      - ".github/scripts/validate-github-release-inventory.mjs"
+      - ".github/scripts/validate-github-release-inventory.test.mjs"
       - ".github/scripts/validate-release-confirmation.mjs"
       - ".github/scripts/validate-release-confirmation.test.mjs"
       - ".github/scripts/retry.sh"
@@ -21,8 +23,7 @@ on:
       - ".gitignore"
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   dry-run:
