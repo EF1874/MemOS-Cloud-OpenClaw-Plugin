@@ -237,4 +237,38 @@ test("dry-run callers use least privilege and do not inherit all repository secr
     "utf8",
   );
   assert.match(historical, /github\.event\.repository\.default_branch/);
+  for (const [version, previousTag] of [
+    ["0.1.15", "v0.1.14"],
+    ["0.1.16", "v0.1.15"],
+    ["0.1.17", "v0.1.16"],
+    ["0.1.18", "v0.1.17"],
+    ["0.1.19", "v0.1.18"],
+  ]) {
+    assert.match(
+      historical,
+      new RegExp(
+        `version: "${version.replaceAll(".", "\\.")}"\\s+expected_previous_tag: "${previousTag.replaceAll(".", "\\.")}"\\s+expected_current_ref: "v${version.replaceAll(".", "\\.")}"`,
+      ),
+    );
+  }
+
+  const contractLint = readFileSync(
+    new URL("../workflows/workflow-contract-lint.yml", import.meta.url),
+    "utf8",
+  );
+  assert.match(contractLint, /permissions:\s*\n\s*contents: read/);
+  assert.match(contractLint, /persist-credentials: false/);
+  assert.match(contractLint, /ACTIONLINT_VERSION: "1\.7\.12"/);
+  assert.match(
+    contractLint,
+    /ACTIONLINT_LINUX_AMD64_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"/,
+  );
+  assert.match(
+    contractLint,
+    /node --test \.github\/scripts\/validate-github-release-inventory\.test\.mjs/,
+  );
+  assert.doesNotMatch(contractLint, /secrets:/);
+  assert.doesNotMatch(contractLint, /contents: write/);
+  assert.doesNotMatch(contractLint, /pull-requests: write/);
+  assert.doesNotMatch(contractLint, /uses: \.\/\.github\/workflows\/release/);
 });
