@@ -498,8 +498,11 @@ function buildSourceRefIndex(evidence) {
   const excludedRefs = new Set();
 
   for (const commit of evidence?.commits || []) {
-    for (const ref of refsForCommit(commit)) {
+    const commitRefs = refsForCommit(commit);
+    const groupKey = normalizeSourceRef(commit?.short_sha) || commitRefs[0] || "";
+    for (const ref of commitRefs) {
       knownRefs.add(ref);
+      if (groupKey) refToGroup.set(ref, groupKey);
       if (isReleaseNoiseSubject(commit?.subject)) excludedRefs.add(ref);
     }
   }
@@ -894,7 +897,15 @@ function dedupeSourceRefsByBestCategory(items, index) {
       const groupKey = groupKeyForRef(ref, index.refToGroup);
       const owner = ownerByGroup.get(groupKey);
       if (!owner || owner === item) {
-        if (!refs.includes(ref)) refs.push(ref);
+        const canonicalRef =
+          /^[a-f0-9]{40}$/i.test(ref) && /^[a-f0-9]{7,12}$/i.test(groupKey)
+            ? groupKey
+            : ref;
+        if (!refs.includes(canonicalRef)) {
+          refs.push(canonicalRef);
+        } else {
+          removedDuplicateRefs += 1;
+        }
       } else {
         removedDuplicateRefs += 1;
       }

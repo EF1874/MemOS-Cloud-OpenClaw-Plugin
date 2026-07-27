@@ -259,6 +259,51 @@ test("postprocesses duplicate source refs into the best evidence category", () =
   assert.match(processed.release_notes_markdown, /doc-agent-release-notes-json/);
 });
 
+test("normalizes full and short SHA aliases while preserving a real PR ref", () => {
+  const processed = postprocessDraftFromEvidence(
+    {
+      ok: true,
+      needs_review: false,
+      release_items: [
+        {
+          category: "Added",
+          text_cn: "**插件健康看板**：新增云插件健康状态展示。",
+          text_en: "**Plugin health dashboard**: Adds cloud plugin health status visibility.",
+          source_refs: [
+            "abc1234",
+            `abc1234${"0".repeat(33)}`,
+            "#3001",
+          ],
+        },
+      ],
+      coverage: { needs_review: false },
+      warnings: [],
+    },
+    {
+      commits: [
+        {
+          sha: `abc1234${"0".repeat(33)}`,
+          short_sha: "abc1234",
+          subject: "feat: add plugin health dashboard (#3001)",
+        },
+      ],
+      release_note_guidance: {
+        source_ref_category_hints: [
+          {
+            category: "Added",
+            source_refs: ["abc1234", "#3001"],
+            subject: "feat: add plugin health dashboard (#3001)",
+          },
+        ],
+      },
+    },
+  );
+
+  assert.equal(processed.ok, true);
+  assert.deepEqual(processed.release_items[0].source_refs, ["abc1234", "#3001"]);
+  assert.equal(processed.postprocess.removed_duplicate_source_refs, 1);
+});
+
 test("rewrites known system prompt handling evidence into docs-ready cloud plugin bullets", () => {
   const processed = postprocessDraftFromEvidence(
     {
