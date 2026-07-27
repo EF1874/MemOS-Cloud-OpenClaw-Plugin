@@ -137,7 +137,7 @@ test("release workflow pins recovery to npm gitHead and reconciles create respon
   assert.doesNotMatch(workflow, /gh release view/);
 });
 
-test("real publishes are branch-gated and dry-run callers have read-only contents", () => {
+test("real publishes are branch-gated and reusable callers are immutable dry runs", () => {
   const releaseWorkflow = readFileSync(
     new URL("../workflows/release.yml", import.meta.url),
     "utf8",
@@ -156,8 +156,7 @@ test("real publishes are branch-gated and dry-run callers have read-only content
       new URL(`../workflows/${name}`, import.meta.url),
       "utf8",
     );
-    assert.match(workflow, /permissions:\n  contents: read/);
-    assert.doesNotMatch(workflow, /contents: write/);
-    assert.doesNotMatch(workflow, /pull-requests: write/);
+    assert.match(workflow, /dry_run: true/);
+    assert.doesNotMatch(workflow, /dry_run: false/);
   }
 });

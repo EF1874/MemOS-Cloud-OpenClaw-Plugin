@@ -23,7 +23,11 @@ on:
       - ".gitignore"
 
 permissions:
-  contents: read
+  # The reusable release workflow also serves real publishes and declares write
+  # permissions. GitHub does not allow a called workflow to elevate a read-only
+  # caller token, so safety here is enforced by the immutable dry_run=true input.
+  contents: write
+  pull-requests: write
 
 jobs:
   secrets-preflight:

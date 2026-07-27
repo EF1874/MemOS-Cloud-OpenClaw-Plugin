@@ -4,7 +4,10 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  # Must match the reusable release workflow; dry_run=true keeps every mutating
+  # publish, tag, Release, and PR step skipped.
+  contents: write
+  pull-requests: write
 
 jobs:
   historical-dry-run:
