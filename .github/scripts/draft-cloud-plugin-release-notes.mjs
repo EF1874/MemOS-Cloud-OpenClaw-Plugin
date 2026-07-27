@@ -251,11 +251,12 @@ function refsForGuidance(commit) {
   return refs;
 }
 
-function categoryHintForSubject(subject) {
+function isReleaseNoiseSubject(subject) {
   const value = String(subject || "");
   const lower = value.toLowerCase();
-  if (
+  return (
     lower.startsWith("release:") ||
+    /^v?\d+\.\d+\.\d+(?:-[0-9a-z.-]+)?$/i.test(value.trim()) ||
     /^chore(\([^)]+\))?:\s*(release|version|bump)\b/i.test(value) ||
     /^(ci|build)(\([^)]+\))?:/i.test(value) ||
     /^test(\([^)]+\))?:/i.test(value) ||
@@ -263,7 +264,12 @@ function categoryHintForSubject(subject) {
     /\b(release (tag|notes?|preview|workflow|metadata)|publish confirmation|semver[^:]*tag|tag[^:]*semver|npm publish)\b/i.test(
       value,
     )
-  ) {
+  );
+}
+
+function categoryHintForSubject(subject) {
+  const value = String(subject || "");
+  if (isReleaseNoiseSubject(value)) {
     return null;
   }
   if (/^(feat|feature|add)(\([^)]+\))?:|^add\s+/i.test(value)) {
@@ -489,9 +495,13 @@ function buildSourceRefIndex(evidence) {
   const refToGroup = new Map();
   const groups = new Map();
   const knownRefs = new Set();
+  const excludedRefs = new Set();
 
   for (const commit of evidence?.commits || []) {
-    for (const ref of refsForCommit(commit)) knownRefs.add(ref);
+    for (const ref of refsForCommit(commit)) {
+      knownRefs.add(ref);
+      if (isReleaseNoiseSubject(commit?.subject)) excludedRefs.add(ref);
+    }
   }
 
   for (const hint of evidence?.release_note_guidance?.source_ref_category_hints || []) {
@@ -512,7 +522,7 @@ function buildSourceRefIndex(evidence) {
     });
   }
 
-  return { refToGroup, groups, knownRefs };
+  return { refToGroup, groups, knownRefs, excludedRefs };
 }
 
 function groupKeyForRef(ref, refToGroup) {
@@ -896,6 +906,25 @@ function dedupeSourceRefsByBestCategory(items, index) {
     filtered.push({ ...item, source_refs: refs });
   }
   return { items: filtered, removedDuplicateRefs, droppedItems };
+}
+
+function removeReleaseNoiseRefs(items, index) {
+  let removedNoiseRefs = 0;
+  let droppedNoiseItems = 0;
+  const filtered = [];
+  for (const item of items) {
+    const refs = item.source_refs.filter((ref) => {
+      if (!index.excludedRefs.has(ref)) return true;
+      removedNoiseRefs += 1;
+      return false;
+    });
+    if (refs.length === 0) {
+      droppedNoiseItems += 1;
+      continue;
+    }
+    filtered.push({ ...item, source_refs: refs });
+  }
+  return { items: filtered, removedNoiseRefs, droppedNoiseItems };
 }
 
 function dedupeReleaseItems(items) {
@@ -1416,8 +1445,9 @@ export function postprocessDraftFromEvidence(draft, evidence) {
   if (inputItems.length === 0) return draft;
 
   const index = buildSourceRefIndex(evidence);
+  const noiseFiltered = removeReleaseNoiseRefs(inputItems, index);
   let reclassifiedItems = 0;
-  let items = inputItems.map((item) => {
+  let items = noiseFiltered.items.map((item) => {
     const hintedCategory = bestHintCategoryForItem(item, index);
     const category = hintedCategory || item.category;
     if (category !== item.category) reclassifiedItems += 1;
@@ -1447,6 +1477,8 @@ export function postprocessDraftFromEvidence(draft, evidence) {
     applied: true,
     removed_duplicate_source_refs: deduped.removedDuplicateRefs,
     dropped_empty_source_items: deduped.droppedItems,
+    removed_release_noise_refs: noiseFiltered.removedNoiseRefs,
+    dropped_release_noise_items: noiseFiltered.droppedNoiseItems,
     reclassified_items: reclassifiedItems,
     expanded_known_items: expanded.expandedKnownItems,
     final_item_count: items.length,
@@ -1455,6 +1487,8 @@ export function postprocessDraftFromEvidence(draft, evidence) {
   if (
     postprocess.removed_duplicate_source_refs > 0 ||
     postprocess.dropped_empty_source_items > 0 ||
+    postprocess.removed_release_noise_refs > 0 ||
+    postprocess.dropped_release_noise_items > 0 ||
     postprocess.reclassified_items > 0 ||
     postprocess.expanded_known_items > 0
   ) {
@@ -1653,6 +1687,10 @@ function cleanError(value) {
   return String(value || "")
     .replace(/Bearer\s+\S+/gi, "Bearer ***")
     .replace(/sk-[A-Za-z0-9_-]+/g, "sk-***")
+    .replace(/\bgithub_pat_[A-Za-z0-9_]+\b/g, "github_pat_***")
+    .replace(/\bgh[pousr]_[A-Za-z0-9_]+\b/g, "gh_***")
+    .replace(/\bnpm_[A-Za-z0-9_]+\b/g, "npm_***")
+    .replace(/(_authToken\s*[=:]\s*)\S+/gi, "$1***")
     .replace(/https?:\/\/[^\s"'<>]+/gi, "https://***")
     .replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b/g, "***")
     .replace(/\s+/g, " ")
@@ -1716,6 +1754,57 @@ export async function reportFailure({ evidence, attempts, finalError, phase = "r
     throw new Error(`Failure-report endpoint returned HTTP ${response.status}`);
   }
   return response.json();
+}
+
+async function reportFailureBestEffort(args) {
+  try {
+    return await reportFailure(args);
+  } catch (error) {
+    const reason = cleanError(error?.message || error);
+    warn(`Failed to report the exhausted release workflow error: ${reason}`);
+    return { skipped: true, reason };
+  }
+}
+
+export function validationFailureAttempts(draft) {
+  return (Array.isArray(draft?.repair_attempts) ? draft.repair_attempts : [])
+    .filter((attempt) => attempt?.stage === "repair" && !attempt?.ok)
+    .slice(-MAX_DRAFT_REPAIR_ATTEMPTS)
+    .map((attempt) => {
+      const kinds = [
+        ...new Set(
+          (Array.isArray(attempt?.issues) ? attempt.issues : [])
+            .map((issue) => String(issue?.kind || "").trim())
+            .filter(Boolean),
+        ),
+      ];
+      return {
+        error_code: "RELEASE_NOTES_VALIDATION",
+        message: JSON.stringify({
+          repair_attempt: attempt.repair_attempt,
+          issue_kinds: kinds,
+          issues: attempt.issues || [],
+        }),
+        retryable: false,
+      };
+    });
+}
+
+export async function reportValidationFailureIfExhausted(
+  { draft, evidence },
+  { fetchImpl = fetch } = {},
+) {
+  const attempts = validationFailureAttempts(draft);
+  if (attempts.length < MAX_DRAFT_REPAIR_ATTEMPTS) {
+    return { skipped: true, reason: "validation repair attempts not exhausted" };
+  }
+  return reportFailureBestEffort({
+    evidence,
+    attempts,
+    finalError: JSON.stringify(draft?.validation_report || draft?.coverage || {}),
+    phase: "release-notes-validation",
+    fetchImpl,
+  });
 }
 
 export async function reportExternalFailureFromEnv({ fetchImpl = fetch } = {}) {
@@ -1792,7 +1881,7 @@ export async function requestDraft(
           return payload;
         }
         if (serverAttempts.length >= 3) {
-          await reportFailure({
+          await reportFailureBestEffort({
             evidence,
             attempts: serverAttempts.map((item) => ({
               error_code: "DRAFT_VALIDATION",
@@ -1818,7 +1907,7 @@ export async function requestDraft(
       attempts.push(entry);
       if (!entry.retryable || attempt === 3) {
         if (attempts.length === 3) {
-          await reportFailure({ evidence, attempts, finalError: entry.message, fetchImpl });
+          await reportFailureBestEffort({ evidence, attempts, finalError: entry.message, fetchImpl });
         }
         fail(`Release-notes draft request failed on attempt ${attempt}: ${entry.message}`);
       }
@@ -1986,6 +2075,9 @@ export async function main() {
   console.log(`Repair attempts: ${draft.repair_attempt_count ?? ""}`);
 
   if (!draft.ok || draft.needs_review) {
+    if (draftUsed) {
+      await reportValidationFailureIfExhausted({ draft, evidence });
+    }
     fail(`Postprocessed release notes require review: ${JSON.stringify(draft.validation_report || draft.coverage || {})}`);
   }
 }

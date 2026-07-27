@@ -4,6 +4,7 @@ set -euo pipefail
 attempts="${RETRY_ATTEMPTS:-3}"
 delay="${RETRY_DELAY_SECONDS:-5}"
 max_delay="${RETRY_MAX_DELAY_SECONDS:-60}"
+attempt_dir="${RETRY_ATTEMPT_DIR:-}"
 label="command"
 
 while [ "$#" -gt 0 ]; do
@@ -54,11 +55,21 @@ if ! [[ "${max_delay}" =~ ^[0-9]+$ ]]; then
   exit 2
 fi
 
+if [ -n "${attempt_dir}" ]; then
+  mkdir -p "${attempt_dir}"
+fi
+
 for attempt in $(seq 1 "${attempts}"); do
   echo "::group::${label} attempt ${attempt}/${attempts}" >&2
   set +e
-  "$@"
-  status=$?
+  if [ -n "${attempt_dir}" ]; then
+    "$@" >"${attempt_dir}/${attempt}.log" 2>&1
+    status=$?
+    sed -n '1,160p' "${attempt_dir}/${attempt}.log"
+  else
+    "$@"
+    status=$?
+  fi
   set -e
   echo "::endgroup::" >&2
 

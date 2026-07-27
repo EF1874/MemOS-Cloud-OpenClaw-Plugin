@@ -25,9 +25,11 @@ import {
   RELEASE_NOTE_LIMITS,
   RELEASE_NOTE_QUALITY_REQUEST,
   reportExternalFailureFromEnv,
+  reportValidationFailureIfExhausted,
   requestDraft,
   requestValidatedDraft,
   resolveCurrentRef,
+  validationFailureAttempts,
   validateManualNotes,
   versionFromTag,
 } from "./draft-cloud-plugin-release-notes.mjs";
@@ -358,6 +360,108 @@ test("uses evidence subjects ahead of off-topic draft text for known cloud plugi
   ]);
 });
 
+test("keeps historical product topics while removing release-automation and version noise refs", () => {
+  const commits = [
+    {
+      sha: "70fb1840fdd73a7a04e5f946148cc94b916dad77",
+      short_sha: "70fb184",
+      subject: "feat: update MEMOS_SOURCE to append platform-specific suffixes and add corresponding tests",
+    },
+    {
+      sha: "5152641c4b564857f23f46b1ea81f9319ef3fd4a",
+      short_sha: "5152641",
+      subject: "feat: add config UI update check",
+    },
+    {
+      sha: "d053b0a2764daa923bbeeeb699c949ef0112a437",
+      short_sha: "d053b0a",
+      subject: "feat: enhance OpenClaw system prompt detection and handling",
+    },
+    {
+      sha: "0dde13c000000000000000000000000000000000",
+      short_sha: "0dde13c",
+      subject: "ci: harden cloud plugin release previews",
+    },
+    {
+      sha: "0c2cd2a1a51f6cbfc744a51462ba54ad8ed3f22a",
+      short_sha: "0c2cd2a",
+      subject: "0.1.19",
+    },
+  ];
+  const processed = postprocessDraftFromEvidence(
+    {
+      ok: true,
+      needs_review: false,
+      release_items: [
+        {
+          category: "Added",
+          text_cn: "**云插件更新**：汇总跨平台来源、配置页更新检查和系统提示处理。",
+          text_en:
+            "**Cloud plugin updates**: Summarizes platform-aware sources, settings update checks, and system prompt handling.",
+          source_refs: commits.map((commit) => commit.short_sha),
+        },
+      ],
+      coverage: { needs_review: false },
+      warnings: [],
+    },
+    {
+      commits,
+      release_note_guidance: {
+        source_ref_category_hints: categoryHintsForCommits(commits),
+      },
+    },
+  );
+
+  assert.equal(processed.ok, true);
+  assert.equal(processed.coverage.missing_required_count, 0);
+  assert.equal(processed.postprocess.removed_release_noise_refs, 2);
+  assert.ok(
+    processed.release_items.every(
+      (item) => !item.source_refs.includes("0dde13c") && !item.source_refs.includes("0c2cd2a"),
+    ),
+  );
+  assert.match(processed.release_notes_markdown, /跨平台记忆来源识别/);
+  assert.match(processed.release_notes_markdown, /配置页新增更新检查/);
+  assert.match(processed.release_notes_markdown, /系统事件过滤增强/);
+  assert.match(processed.release_notes_markdown, /系统提示识别优化/);
+  assert.doesNotMatch(processed.release_notes_markdown, /发布预览|release previews|0dde13c|0c2cd2a/);
+});
+
+test("fails closed when a draft contains only release-automation evidence", () => {
+  const processed = postprocessDraftFromEvidence(
+    {
+      ok: true,
+      needs_review: false,
+      release_items: [
+        {
+          category: "Improved",
+          text_cn: "**发布流程优化**：增强发布预览与重试。",
+          text_en: "**Release workflow improvements**: Improves release previews and retries.",
+          source_refs: ["0dde13c"],
+        },
+      ],
+      coverage: { needs_review: false },
+      warnings: [],
+    },
+    {
+      commits: [
+        {
+          sha: "0dde13c000000000000000000000000000000000",
+          short_sha: "0dde13c",
+          subject: "ci: harden cloud plugin release previews",
+        },
+      ],
+      release_note_guidance: { source_ref_category_hints: [] },
+    },
+  );
+
+  assert.equal(processed.ok, false);
+  assert.equal(processed.needs_review, true);
+  assert.deepEqual(processed.release_items, []);
+  assert.equal(processed.postprocess.dropped_release_noise_items, 1);
+  assert.ok(processed.validation_report.issues.some((issue) => issue.kind === "empty_release_items"));
+});
+
 test("splits collapsed multi-ref historical drafts into docs-ready cloud plugin topics", () => {
   const commits = [
     {
@@ -514,7 +618,7 @@ test("postprocess fails closed when cloud plugin docs output is too noisy", () =
     return {
       sha: `${short}${"0".repeat(33)}`,
       short_sha: short,
-      subject: `feat: improve cloud plugin release note quality ${index + 1} (#${3001 + index})`,
+      subject: `feat: improve cloud memory recall quality ${index + 1} (#${3001 + index})`,
     };
   });
   const noisyItems = Array.from({ length: 13 }, (_item, index) => ({
@@ -570,7 +674,7 @@ test("postprocess fails closed when cloud plugin docs bullets are too long", () 
         {
           sha: "abc12340000000000000000000000000000000",
           short_sha: "abc1234",
-          subject: "feat: improve cloud plugin release note quality (#3001)",
+          subject: "feat: improve cloud memory recall quality (#3001)",
         },
       ],
       release_note_guidance: {
@@ -578,7 +682,7 @@ test("postprocess fails closed when cloud plugin docs bullets are too long", () 
           {
             category: "Improved",
             source_refs: ["abc1234", "#3001"],
-            subject: "feat: improve cloud plugin release note quality (#3001)",
+            subject: "feat: improve cloud memory recall quality (#3001)",
           },
         ],
       },
@@ -753,6 +857,74 @@ test("defaults to three validation repair attempts before failing closed", async
   assert.equal(result.validation_attempt_count, 4);
   assert.equal(requests.length, 4);
   assert.equal(requests[3].release_notes_repair_context.max_repair_attempts, 3);
+});
+
+test("reports the three semantic repair failures after validation exhaustion", async () => {
+  const previous = { ...process.env };
+  try {
+    process.env.DOC_AGENT_RELEASE_FAILURE_URL = "https://example.invalid/failure";
+    process.env.DOC_AGENT_RELEASE_NOTES_DRAFT_TOKEN = "test-token";
+    const draft = {
+      ok: false,
+      needs_review: true,
+      validation_report: {
+        ok: false,
+        needs_review: true,
+        issues: [{ kind: "language", field: "text_en" }],
+      },
+      repair_attempts: [
+        { stage: "draft", repair_attempt: 0, ok: false, issues: [{ kind: "language" }] },
+        { stage: "repair", repair_attempt: 1, ok: false, issues: [{ kind: "language" }] },
+        { stage: "repair", repair_attempt: 2, ok: false, issues: [{ kind: "language" }] },
+        { stage: "repair", repair_attempt: 3, ok: false, issues: [{ kind: "language" }] },
+      ],
+    };
+    assert.deepEqual(
+      validationFailureAttempts(draft).map((attempt) => JSON.parse(attempt.message).repair_attempt),
+      [1, 2, 3],
+    );
+
+    let report;
+    const result = await reportValidationFailureIfExhausted(
+      { draft, evidence },
+      {
+        fetchImpl: async (_url, options) => {
+          report = JSON.parse(options.body);
+          return response(200, { ok: true, sent: true });
+        },
+      },
+    );
+    assert.equal(result.ok, true);
+    assert.equal(report.phase, "release-notes-validation");
+    assert.deepEqual(report.attempts.map((attempt) => attempt.attempt), [1, 2, 3]);
+    assert.ok(report.attempts.every((attempt) => attempt.error_code === "RELEASE_NOTES_VALIDATION"));
+    assert.match(report.final_error, /language/);
+  } finally {
+    process.env = previous;
+  }
+});
+
+test("does not report semantic validation before all three repairs are exhausted", async () => {
+  let called = false;
+  const result = await reportValidationFailureIfExhausted(
+    {
+      evidence,
+      draft: {
+        repair_attempts: [
+          { stage: "repair", repair_attempt: 1, ok: false, issues: [{ kind: "language" }] },
+          { stage: "repair", repair_attempt: 2, ok: false, issues: [{ kind: "language" }] },
+        ],
+      },
+    },
+    {
+      fetchImpl: async () => {
+        called = true;
+        return response(200, { ok: true });
+      },
+    },
+  );
+  assert.equal(result.skipped, true);
+  assert.equal(called, false);
 });
 
 test("fault injection covers every required cloud-plugin degradation sample", () => {
@@ -960,17 +1132,19 @@ test("manual release notes also produce docs preview outputs", async () => {
   try {
     const outputPath = join(directory, "github-output.txt");
     const notesPath = join(directory, "release-notes.md");
-    const sourceRef = runGit(process.cwd(), ["rev-parse", "--short", "HEAD"]);
+    const sourceRef = runGit(process.cwd(), ["rev-parse", "--short", "d053b0a"]);
     Object.assign(process.env, {
-      RELEASE_VERSION: "0.1.20",
+      RELEASE_VERSION: "0.1.19",
+      RELEASE_TAG: "v0.1.19",
+      RELEASE_EVIDENCE_REF: "v0.1.19",
       RELEASE_NOTES_FILE: notesPath,
       MANUAL_RELEASE_NOTES: `## Changelog
 
 ### Improved
-- **发布预览护栏**：增强云插件发布前的检查信息。
+- **系统提示识别优化**：兼容单行压缩内容并降低普通消息误判概率。
 
 <!-- doc-agent-release-notes-json
-{"items":[{"category":"Improved","text_cn":"**发布预览护栏**：增强云插件发布前的检查信息。","text_en":"**Release preview guardrails**: Improves pre-publish inspection details for the cloud plugin.","source_refs":["${sourceRef}"]}],"coverage":{"needs_review":false,"required_count":0,"covered_required_count":0,"missing_required_count":0}}
+{"items":[{"category":"Improved","text_cn":"**系统提示识别优化**：兼容单行压缩内容并降低普通消息误判概率。","text_en":"**System prompt detection**: Supports flattened single-line prompts and reduces false positives on regular messages.","source_refs":["${sourceRef}"]}],"coverage":{"needs_review":false,"required_count":1,"covered_required_count":1,"missing_required_count":0}}
 -->`,
       GITHUB_OUTPUT: outputPath,
     });
@@ -983,7 +1157,7 @@ test("manual release notes also produce docs preview outputs", async () => {
     const preview = readFileSync(match[1], "utf8");
     assert.match(preview, /MemOS-Docs Plugin Changelog Preview/);
     assert.match(preview, /OpenClaw 云插件/);
-    assert.match(preview, /Release preview guardrails/);
+    assert.match(preview, /System prompt detection/);
     assert.match(readFileSync(notesPath, "utf8"), /doc-agent: source-id=openclaw-cloud-plugin/);
     const qualityMatch = output.match(
       /quality_report_file<<__DOC_AGENT_EOF__\n([\s\S]*?)\n__DOC_AGENT_EOF__/,
@@ -1214,6 +1388,33 @@ test("reports once after three transient failures", async () => {
   }
 });
 
+test("keeps the original draft failure when the failure-report endpoint is unavailable", async () => {
+  const previous = { ...process.env };
+  try {
+    process.env.DOC_AGENT_RELEASE_NOTES_DRAFT_URL = "https://example.invalid/draft";
+    process.env.DOC_AGENT_RELEASE_FAILURE_URL = "https://example.invalid/failure";
+    process.env.DOC_AGENT_RELEASE_NOTES_DRAFT_TOKEN = "test-token";
+    let draftCalls = 0;
+    let reportCalls = 0;
+    const fetchImpl = async (url) => {
+      if (url.includes("/failure")) {
+        reportCalls += 1;
+        return response(503, { detail: "failure sink unavailable" });
+      }
+      draftCalls += 1;
+      return response(503, { detail: "draft service busy" });
+    };
+    await assert.rejects(
+      requestDraft(evidence, { fetchImpl, sleep: async () => {} }),
+      /Release-notes draft request failed on attempt 3: HTTP 503/,
+    );
+    assert.equal(draftCalls, 3);
+    assert.equal(reportCalls, 1);
+  } finally {
+    process.env = previous;
+  }
+});
+
 test("requires configured draft URL instead of using a public fallback", async () => {
   const previous = { ...process.env };
   try {
@@ -1239,15 +1440,23 @@ test("sanitizes configured URLs and IPs before failure reporting", async () => {
       calls.push({ url, body: JSON.parse(options.body) });
       if (url.includes("/failure")) return response(200, { ok: true, sent: true });
       throw Object.assign(
-        new Error("connect ECONNREFUSED https://example.invalid/redacted-path 127.0.0.1:4318 with Bearer test-token"),
+        new Error(
+          "connect ECONNREFUSED https://example.invalid/redacted-path 127.0.0.1:4318 " +
+            "with Bearer test-token github_pat_privatevalue ghp_privatevalue npm_privatevalue " +
+            "//registry.npmjs.org/:_authToken=privatevalue",
+        ),
         { retryable: true },
       );
     };
     await assert.rejects(requestDraft(evidence, { fetchImpl, sleep: async () => {} }), /attempt 3/);
     const report = calls.find((call) => call.url.includes("/failure"))?.body;
     assert.ok(report);
-    assert.doesNotMatch(JSON.stringify(report), /example\.invalid|redacted-path|127\.0\.0\.1|test-token/);
+    assert.doesNotMatch(
+      JSON.stringify(report),
+      /example\.invalid|redacted-path|127\.0\.0\.1|test-token|privatevalue/,
+    );
     assert.match(JSON.stringify(report), /https:\/\/\*\*\*/);
+    assert.match(JSON.stringify(report), /github_pat_\*\*\*|gh_\*\*\*|npm_\*\*\*|_authToken=\*\*\*/);
   } finally {
     process.env = previous;
   }

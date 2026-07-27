@@ -134,6 +134,24 @@ test("release workflow pins recovery to npm gitHead and reconciles create respon
     workflow,
     /Refusing to issue a second create request/,
   );
+  assert.match(workflow, /report_exhausted_failure "github-release-create"/);
+  assert.match(workflow, /report_exhausted_failure "github-release-verification"/);
+  assert.match(workflow, /report_exhausted_failure "github-release-tag-push"/);
+  assert.match(workflow, /report_exhausted_failure "github-release-branch-push"/);
+  assert.match(workflow, /report_exhausted_failure "github-release-pr-create"/);
+  assert.match(workflow, /should_create_version_pr=true/);
+  assert.match(
+    workflow,
+    /Release branch \$\{release_branch\} already points at this commit\.[\s\S]+should_create_version_pr=true/,
+  );
+  assert.match(
+    workflow,
+    /::error::Failed to create release PR automatically after three attempts/,
+  );
+  assert.doesNotMatch(
+    workflow,
+    /::warning::Failed to create release PR automatically after three attempts/,
+  );
   assert.doesNotMatch(workflow, /gh release view/);
 });
 

@@ -503,6 +503,14 @@ jobs:
           if [[ "${RELEASE_VERSION}" == *-* || "${NPM_DIST_TAG}" != "latest" ]]; then
             expected_release_prerelease=true
           fi
+          report_exhausted_failure() {
+            local phase="$1"
+            local attempt_dir="$2"
+            RELEASE_FAILURE_PHASE="${phase}" \
+              RELEASE_FAILURE_ATTEMPT_DIR="${attempt_dir}" \
+              node .github/scripts/draft-cloud-plugin-release-notes.mjs \
+              || echo "::warning::Failed to report exhausted ${phase} attempts."
+          }
 
           npm_view_log="${RUNNER_TEMP}/openclaw-cloud-plugin-npm-view.log"
           npm_version_exists() {
@@ -738,8 +746,13 @@ jobs:
               fi
               release_commit_sha="$(git rev-parse HEAD)"
               validate_release_commit_versions "${release_commit_sha}"
-              bash .github/scripts/retry.sh --label "push durable release branch" -- \
-                git push origin "${release_commit_sha}:refs/heads/${release_branch}"
+              durable_branch_attempt_dir="${RUNNER_TEMP}/openclaw-cloud-plugin-durable-branch-attempts"
+              if ! RETRY_ATTEMPT_DIR="${durable_branch_attempt_dir}" \
+                bash .github/scripts/retry.sh --label "push durable release branch" -- \
+                  git push origin "${release_commit_sha}:refs/heads/${release_branch}"; then
+                report_exhausted_failure "github-durable-release-branch-push" "${durable_branch_attempt_dir}"
+                exit 1
+              fi
             fi
             create_version_pr=true
 
@@ -778,10 +791,7 @@ jobs:
                 break
               fi
               if [ "${attempt}" = 3 ]; then
-                RELEASE_FAILURE_PHASE=npm-publish \
-                  RELEASE_FAILURE_ATTEMPT_DIR="${attempt_dir}" \
-                  node .github/scripts/draft-cloud-plugin-release-notes.mjs \
-                  || echo "::warning::Failed to send the exhausted-retry notification."
+                report_exhausted_failure "npm-publish" "${attempt_dir}"
                 echo "::error::npm publish failed after three attempts."
                 exit 1
               fi
@@ -813,6 +823,8 @@ jobs:
           RELEASE_COMMIT_SHA: ${{ steps.publish_npm.outputs.release_commit_sha }}
           CREATE_VERSION_PR: ${{ steps.publish_npm.outputs.create_version_pr }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DOC_AGENT_RELEASE_FAILURE_URL: ${{ secrets.DOC_AGENT_RELEASE_FAILURE_URL }}
+          DOC_AGENT_RELEASE_NOTES_DRAFT_TOKEN: ${{ secrets.DOC_AGENT_RELEASE_NOTES_DRAFT_TOKEN }}
         run: |
           set -euo pipefail
           if [ -z "${RELEASE_NOTES_FILE}" ] || [ ! -s "${RELEASE_NOTES_FILE}" ]; then
@@ -838,20 +850,31 @@ jobs:
           if [[ "${RELEASE_VERSION}" == *-* || "${NPM_DIST_TAG}" != "latest" ]]; then
             expected_release_prerelease=true
           fi
+          report_exhausted_failure() {
+            local phase="$1"
+            local attempt_dir="$2"
+            RELEASE_FAILURE_PHASE="${phase}" \
+              RELEASE_FAILURE_ATTEMPT_DIR="${attempt_dir}" \
+              RELEASE_TAG="${release_tag}" \
+              node .github/scripts/draft-cloud-plugin-release-notes.mjs \
+              || echo "::warning::Failed to report exhausted ${phase} attempts."
+          }
           remote_branch_sha() {
             local branch="$1"
-            local out="${RUNNER_TEMP}/openclaw-cloud-plugin-remote-branch.txt"
+            local attempt_dir="${RUNNER_TEMP}/openclaw-cloud-plugin-remote-branch-attempts"
+            mkdir -p "${attempt_dir}"
             for attempt in 1 2 3; do
               set +e
-              git ls-remote --heads origin "${branch}" >"${out}" 2>&1
+              git ls-remote --heads origin "${branch}" >"${attempt_dir}/${attempt}.log" 2>&1
               status=$?
               set -e
               if [ "${status}" = 0 ]; then
-                awk '{print $1}' "${out}"
+                awk '{print $1}' "${attempt_dir}/${attempt}.log"
                 return 0
               fi
-              sed -n '1,120p' "${out}"
+              sed -n '1,120p' "${attempt_dir}/${attempt}.log" >&2
               if [ "${attempt}" = 3 ]; then
+                report_exhausted_failure "github-release-branch-lookup" "${attempt_dir}"
                 echo "::error::Failed to check remote branch ${branch} after three attempts."
                 exit "${status}"
               fi
@@ -860,9 +883,11 @@ jobs:
           }
           remote_tag_exists() {
             local tag="$1"
+            local attempt_dir="${RUNNER_TEMP}/openclaw-cloud-plugin-remote-tag-attempts"
+            mkdir -p "${attempt_dir}"
             for attempt in 1 2 3; do
               set +e
-              git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1
+              git ls-remote --exit-code --tags origin "refs/tags/${tag}" >"${attempt_dir}/${attempt}.log" 2>&1
               status=$?
               set -e
               if [ "${status}" = 0 ]; then
@@ -872,6 +897,7 @@ jobs:
                 return 1
               fi
               if [ "${attempt}" = 3 ]; then
+                report_exhausted_failure "github-release-tag-lookup" "${attempt_dir}"
                 echo "::error::Failed to check remote tag ${tag} after three attempts."
                 exit "${status}"
               fi
@@ -881,19 +907,21 @@ jobs:
           release_inventory_file="${RUNNER_TEMP}/openclaw-cloud-plugin-release-inventory.json"
           refresh_release_inventory() {
             local out="${release_inventory_file}.tmp"
-            local err="${release_inventory_file}.err"
+            local attempt_dir="${RUNNER_TEMP}/openclaw-cloud-plugin-release-inventory-attempts"
+            mkdir -p "${attempt_dir}"
             for attempt in 1 2 3; do
               set +e
               gh api --paginate --slurp \
-                "repos/${GITHUB_REPOSITORY}/releases?per_page=100" >"${out}" 2>"${err}"
+                "repos/${GITHUB_REPOSITORY}/releases?per_page=100" >"${out}" 2>"${attempt_dir}/${attempt}.log"
               status=$?
               set -e
               if [ "${status}" = 0 ]; then
                 mv "${out}" "${release_inventory_file}"
                 return 0
               fi
-              sed -n '1,120p' "${err}" >&2
+              sed -n '1,120p' "${attempt_dir}/${attempt}.log" >&2
               if [ "${attempt}" = 3 ]; then
+                report_exhausted_failure "github-release-inventory" "${attempt_dir}"
                 echo "::error::Failed to enumerate GitHub Releases after three attempts."
                 exit "${status}"
               fi
@@ -913,6 +941,9 @@ jobs:
           }
           create_release_if_missing() {
             local release_flags=()
+            local create_attempt_dir="${RUNNER_TEMP}/openclaw-cloud-plugin-release-create-attempts"
+            local verification_attempt_dir="${RUNNER_TEMP}/openclaw-cloud-plugin-release-verification-attempts"
+            mkdir -p "${create_attempt_dir}" "${verification_attempt_dir}"
             if [ "${expected_release_prerelease}" = "true" ]; then
               release_flags+=(--prerelease)
               echo "Marking GitHub Release ${release_tag} as prerelease because version=${RELEASE_VERSION}, npm_dist_tag=${NPM_DIST_TAG}."
@@ -944,9 +975,10 @@ jobs:
                 --target "${RELEASE_COMMIT_SHA}" \
                 --title "OpenClaw Cloud Plugin ${release_tag}" \
                 --notes-file "${RELEASE_NOTES_FILE}" \
-                "${release_flags[@]}"
+                "${release_flags[@]}" >"${create_attempt_dir}/${attempt}.log" 2>&1
               create_status=$?
               set -e
+              sed -n '1,160p' "${create_attempt_dir}/${attempt}.log"
               echo "::endgroup::"
 
               release_verified=false
@@ -956,6 +988,7 @@ jobs:
                 release_inventory_report="$(inspect_release_inventory true)"
                 release_inventory_status=$?
                 set -e
+                printf '%s\n' "${release_inventory_report}" >"${verification_attempt_dir}/${poll_attempt}.log"
                 release_inventory_state="$(
                   printf '%s' "${release_inventory_report}" |
                     jq -r '.state // "invalid"'
@@ -980,6 +1013,7 @@ jobs:
                 return 0
               fi
               if [ "${create_status}" -eq 0 ]; then
+                report_exhausted_failure "github-release-verification" "${verification_attempt_dir}"
                 echo "::error::GitHub reported a successful Release create, but ${release_tag} could not be verified. Refusing to issue a second create request."
                 exit 1
               fi
@@ -988,10 +1022,13 @@ jobs:
               fi
             done
 
+            report_exhausted_failure "github-release-create" "${create_attempt_dir}"
             echo "::error::Failed to create and verify GitHub Release ${release_tag} after three attempts."
             exit 1
           }
           create_pr_if_missing() {
+            local attempt_dir="${RUNNER_TEMP}/openclaw-cloud-plugin-release-pr-attempts"
+            mkdir -p "${attempt_dir}"
             if gh pr view "${release_branch}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
               echo "Release PR already exists for ${release_branch}."
               return 0
@@ -1003,19 +1040,23 @@ jobs:
                 --base "${DEFAULT_BRANCH}" \
                 --head "${release_branch}" \
                 --title "${release_title}" \
-                --body "Bumps package.json and plugin manifests for the published npm release ${release_tag}."
+                --body "Bumps package.json and plugin manifests for the published npm release ${release_tag}." \
+                >"${attempt_dir}/${attempt}.log" 2>&1
               status=$?
               set -e
               if [ "${status}" = 0 ]; then
+                sed -n '1,80p' "${attempt_dir}/${attempt}.log"
                 return 0
               fi
+              sed -n '1,120p' "${attempt_dir}/${attempt}.log" >&2
               if gh pr view "${release_branch}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
                 echo "Release PR exists after a failed create response; treating as success."
                 return 0
               fi
               if [ "${attempt}" = 3 ]; then
-                echo "::warning::Failed to create release PR automatically after three attempts. Open a PR from ${release_branch} to ${DEFAULT_BRANCH}."
-                return 0
+                report_exhausted_failure "github-release-pr-create" "${attempt_dir}"
+                echo "::error::Failed to create release PR automatically after three attempts. Rerun this workflow to reconcile the durable release branch, or open a PR from ${release_branch} to ${DEFAULT_BRANCH}."
+                return "${status}"
               fi
               sleep "$((attempt * 5))"
             done
@@ -1045,24 +1086,39 @@ jobs:
               exit 1
             fi
             git tag -a "${release_tag}" "${RELEASE_COMMIT_SHA}" -m "OpenClaw Cloud Plugin ${release_tag}"
-            bash .github/scripts/retry.sh --label "push release tag" -- git push origin "refs/tags/${release_tag}"
+            tag_attempt_dir="${RUNNER_TEMP}/openclaw-cloud-plugin-release-tag-push-attempts"
+            if ! RETRY_ATTEMPT_DIR="${tag_attempt_dir}" \
+              bash .github/scripts/retry.sh --label "push release tag" -- \
+                git push origin "refs/tags/${release_tag}"; then
+              report_exhausted_failure "github-release-tag-push" "${tag_attempt_dir}"
+              exit 1
+            fi
           fi
 
           create_release_if_missing
 
-          if [ "${CREATE_VERSION_PR}" = "true" ]; then
-            remote_branch_sha="$(remote_branch_sha "${release_branch}")"
-            if [ -n "${remote_branch_sha}" ]; then
-              if [ "${remote_branch_sha}" != "${RELEASE_COMMIT_SHA}" ]; then
-                echo "::error::Release branch ${release_branch} already exists at a different commit; refusing to overwrite it."
-                exit 1
-              fi
-              echo "Release branch ${release_branch} already points at this commit."
-            else
-              bash .github/scripts/retry.sh --label "push release branch" -- \
-                git push origin "${RELEASE_COMMIT_SHA}:refs/heads/${release_branch}"
+          remote_branch_sha="$(remote_branch_sha "${release_branch}")"
+          should_create_version_pr=false
+          if [ -n "${remote_branch_sha}" ]; then
+            if [ "${remote_branch_sha}" != "${RELEASE_COMMIT_SHA}" ]; then
+              echo "::error::Release branch ${release_branch} already exists at a different commit; refusing to overwrite it."
+              exit 1
             fi
+            echo "Release branch ${release_branch} already points at this commit."
+            should_create_version_pr=true
+          elif [ "${CREATE_VERSION_PR}" = "true" ]; then
+            branch_attempt_dir="${RUNNER_TEMP}/openclaw-cloud-plugin-release-branch-push-attempts"
+            if ! RETRY_ATTEMPT_DIR="${branch_attempt_dir}" \
+              bash .github/scripts/retry.sh --label "push release branch" -- \
+                git push origin "${RELEASE_COMMIT_SHA}:refs/heads/${release_branch}"; then
+              report_exhausted_failure "github-release-branch-push" "${branch_attempt_dir}"
+              exit 1
+            fi
+            should_create_version_pr=true
+          fi
+
+          if [ "${should_create_version_pr}" = "true" ]; then
             create_pr_if_missing
           else
-            echo "Metadata recovery used npm gitHead ${RELEASE_COMMIT_SHA}; no new version PR was created."
+            echo "Metadata recovery used npm gitHead ${RELEASE_COMMIT_SHA}; no durable release branch exists, so no version PR was created."
           fi
