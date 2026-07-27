@@ -189,9 +189,15 @@ function listProductTags() {
 }
 
 export function findPreviousTag(targetVersion, currentTag) {
+  const target = parseSemver(targetVersion);
+  const stableTarget = Boolean(target && target.prerelease.length === 0);
   const candidates = listProductTags()
     .filter((item) => item.tag !== currentTag)
     .filter((item) => compareSemver(item.version, targetVersion) < 0)
+    // Prereleases never create a formal Docs entry. A stable release therefore
+    // has to summarize everything since the previous stable release instead of
+    // starting after the latest beta/rc and silently omitting those changes.
+    .filter((item) => !stableTarget || parseSemver(item.version)?.prerelease.length === 0)
     .sort((a, b) => compareSemver(b.version, a.version));
   return candidates[0]?.tag || "";
 }

@@ -89,6 +89,7 @@ test("finds previous tags using SemVer precedence for prerelease numbers", () =>
     runGit(dir, ["commit", "-m", "seed"]);
     runGit(dir, ["tag", "v1.0.0"]);
     runGit(dir, ["tag", "v1.0.1+build.1"]);
+    runGit(dir, ["tag", "v1.0.1-beta.1"]);
     for (let i = 1; i <= 19; i++) {
       runGit(dir, ["tag", `v1.0.0-beta.${i}`]);
     }
@@ -97,6 +98,8 @@ test("finds previous tags using SemVer precedence for prerelease numbers", () =>
     assert.equal(findPreviousTag("1.0.0-beta.10", "v1.0.0-beta.10"), "v1.0.0-beta.9");
     assert.equal(findPreviousTag("1.0.0-beta.11", "v1.0.0-beta.11"), "v1.0.0-beta.10");
     assert.equal(findPreviousTag("1.0.0-beta.20", "v1.0.0-beta.20"), "v1.0.0-beta.19");
+    // Prereleases are preview-only in the Docs pipeline, so a stable release
+    // must include the full delta from the previous stable tag.
     assert.equal(findPreviousTag("1.0.1+build.2", "v1.0.1+build.2"), "v1.0.0");
   } finally {
     process.chdir(previousCwd);

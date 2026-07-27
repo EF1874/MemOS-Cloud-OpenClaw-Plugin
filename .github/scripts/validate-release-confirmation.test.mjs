@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   expectedReleaseConfirmation,
+  validateReleaseChannel,
   validateReleaseConfirmation,
 } from "./validate-release-confirmation.mjs";
 
@@ -20,6 +21,23 @@ test("does not require publish confirmation for dry runs", () => {
     }).ok,
     true,
   );
+});
+
+test("requires stable versions to use latest and prereleases to use a preview channel", () => {
+  assert.equal(validateReleaseChannel({ version: "0.1.20", npmDistTag: "latest" }).ok, true);
+  assert.equal(validateReleaseChannel({ version: "0.1.20-beta.1", npmDistTag: "beta" }).ok, true);
+  assert.equal(validateReleaseChannel({ version: "0.1.20-rc.1", npmDistTag: "next" }).ok, true);
+
+  const prereleaseOnLatest = validateReleaseChannel({
+    version: "0.1.20-beta.1",
+    npmDistTag: "latest",
+  });
+  assert.equal(prereleaseOnLatest.ok, false);
+  assert.match(prereleaseOnLatest.reason, /cannot use npm dist-tag 'latest'/);
+
+  const stableOnBeta = validateReleaseChannel({ version: "0.1.20", npmDistTag: "beta" });
+  assert.equal(stableOnBeta.ok, false);
+  assert.match(stableOnBeta.reason, /must use npm dist-tag 'latest'/);
 });
 
 test("requires exact publish confirmation before a real release", () => {
