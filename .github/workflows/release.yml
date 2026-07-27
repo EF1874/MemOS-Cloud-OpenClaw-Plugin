@@ -32,6 +32,20 @@ on:
         required: true
         type: boolean
         default: false
+      fault_case:
+        description: "Dry-run-only release-note fault injection."
+        required: true
+        type: choice
+        default: "none"
+        options:
+          - none
+          - mixed_language
+          - missing_source_refs
+          - missing_important_commit
+          - invalid_source_ref
+          - thirteen_items
+          - too_long
+          - manual_notes_missing_payload
   workflow_call:
     inputs:
       version:
@@ -68,6 +82,11 @@ on:
         required: false
         type: boolean
         default: false
+      fault_case:
+        description: "Dry-run-only release-note fault injection."
+        required: false
+        type: string
+        default: "none"
       artifact_name:
         description: "Inspection artifact name. Intended for reusable dry-run matrix callers."
         required: false
@@ -97,12 +116,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.git_ref || github.ref }}
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
@@ -114,6 +133,7 @@ jobs:
           NPM_DIST_TAG: ${{ inputs.tag }}
           DRY_RUN: ${{ inputs.dry_run }}
           PUBLISH_CONFIRMATION: ${{ inputs.publish_confirmation }}
+          RELEASE_FAULT_CASE: ${{ inputs.fault_case }}
         run: |
           set -euo pipefail
           if [[ "${RELEASE_VERSION}" == [vV]* ]]; then
@@ -130,6 +150,10 @@ jobs:
           fi
           if ! [[ "${NPM_DIST_TAG}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
             echo "::error::tag must be a valid npm dist-tag."
+            exit 1
+          fi
+          if [ "${DRY_RUN}" != "true" ] && [ "${RELEASE_FAULT_CASE}" != "none" ]; then
+            echo "::error::fault_case is only allowed when dry_run=true."
             exit 1
           fi
           node .github/scripts/validate-release-confirmation.mjs
@@ -186,21 +210,26 @@ jobs:
           RELEASE_VERSION: ${{ inputs.version }}
           RELEASE_TAG: v${{ inputs.version }}
           MANUAL_RELEASE_NOTES: ${{ inputs.release_notes }}
+          RELEASE_FAULT_CASE: ${{ inputs.fault_case }}
           DOC_AGENT_RELEASE_NOTES_DRAFT_URL: ${{ secrets.DOC_AGENT_RELEASE_NOTES_DRAFT_URL }}
           DOC_AGENT_RELEASE_FAILURE_URL: ${{ secrets.DOC_AGENT_RELEASE_FAILURE_URL }}
           DOC_AGENT_RELEASE_NOTES_DRAFT_TOKEN: ${{ secrets.DOC_AGENT_RELEASE_NOTES_DRAFT_TOKEN }}
-        run: bash .github/scripts/retry.sh --attempts 2 --label "draft GitHub Release notes" -- node .github/scripts/draft-cloud-plugin-release-notes.mjs
+        run: node .github/scripts/draft-cloud-plugin-release-notes.mjs
 
       - name: Prepare release inspection artifact
+        if: ${{ always() }}
         shell: bash
         env:
+          DRAFT_STEP_OUTCOME: ${{ steps.release_notes.outcome }}
           DRY_RUN: ${{ inputs.dry_run }}
           RELEASE_VERSION: ${{ inputs.version }}
+          FAULT_CASE: ${{ inputs.fault_case }}
           RELEASE_NOTES_FILE: ${{ steps.release_notes.outputs.release_notes_file }}
           EVIDENCE_FILE: ${{ steps.release_notes.outputs.evidence_file }}
           DRAFT_FILE: ${{ steps.release_notes.outputs.draft_file }}
           DOCS_PREVIEW_FILE: ${{ steps.release_notes.outputs.docs_preview_file }}
           DOCS_PREVIEW_MARKDOWN_FILE: ${{ steps.release_notes.outputs.docs_preview_markdown_file }}
+          QUALITY_REPORT_FILE: ${{ steps.release_notes.outputs.quality_report_file }}
           DRAFT_USED: ${{ steps.release_notes.outputs.draft_used }}
           PREVIOUS_TAG: ${{ steps.release_notes.outputs.previous_tag }}
           CURRENT_TAG: ${{ steps.release_notes.outputs.current_tag }}
@@ -216,56 +245,53 @@ jobs:
           inspection_dir="${RUNNER_TEMP}/openclaw-cloud-plugin-release-inspection"
           mkdir -p "${inspection_dir}"
 
-          if [ -z "${RELEASE_NOTES_FILE}" ] || [ ! -s "${RELEASE_NOTES_FILE}" ]; then
+          if [ "${DRAFT_STEP_OUTCOME}" = "success" ] && { [ -z "${RELEASE_NOTES_FILE}" ] || [ ! -s "${RELEASE_NOTES_FILE}" ]; }; then
             echo "::error::Release notes file was not generated."
             exit 1
           fi
 
-          if [ -n "${EXPECTED_PREVIOUS_TAG:-}" ] && [ "${PREVIOUS_TAG:-}" != "${EXPECTED_PREVIOUS_TAG}" ]; then
+          if [ "${DRAFT_STEP_OUTCOME}" = "success" ] && [ -n "${EXPECTED_PREVIOUS_TAG:-}" ] && [ "${PREVIOUS_TAG:-}" != "${EXPECTED_PREVIOUS_TAG}" ]; then
             echo "::error::Expected previous_tag=${EXPECTED_PREVIOUS_TAG}, got ${PREVIOUS_TAG:-n/a}."
             exit 1
           fi
-          if [ -n "${EXPECTED_CURRENT_REF:-}" ] && [ "${CURRENT_REF:-}" != "${EXPECTED_CURRENT_REF}" ]; then
+          if [ "${DRAFT_STEP_OUTCOME}" = "success" ] && [ -n "${EXPECTED_CURRENT_REF:-}" ] && [ "${CURRENT_REF:-}" != "${EXPECTED_CURRENT_REF}" ]; then
             echo "::error::Expected current_ref=${EXPECTED_CURRENT_REF}, got ${CURRENT_REF:-n/a}."
             exit 1
           fi
 
-          cp "${RELEASE_NOTES_FILE}" "${inspection_dir}/release-notes.md"
-          cp "${RUNNER_TEMP}/openclaw-cloud-plugin-pack.json" "${inspection_dir}/npm-pack.json"
+          if [ -n "${RELEASE_NOTES_FILE}" ] && [ -s "${RELEASE_NOTES_FILE}" ]; then
+            cp "${RELEASE_NOTES_FILE}" "${inspection_dir}/release-notes.md"
+          fi
+          if [ -s "${RUNNER_TEMP}/openclaw-cloud-plugin-pack.json" ]; then
+            cp "${RUNNER_TEMP}/openclaw-cloud-plugin-pack.json" "${inspection_dir}/npm-pack.json"
+          fi
           if [ -n "${EVIDENCE_FILE}" ] && [ -s "${EVIDENCE_FILE}" ]; then
             cp "${EVIDENCE_FILE}" "${inspection_dir}/evidence.json"
           fi
-          if [ "${DRAFT_USED:-}" = "true" ]; then
-            if [ -z "${DRAFT_FILE}" ] || [ ! -s "${DRAFT_FILE}" ]; then
-              echo "::error::Draft JSON file was not generated."
-              exit 1
-            fi
+          if [ -n "${DRAFT_FILE}" ] && [ -s "${DRAFT_FILE}" ]; then
             cp "${DRAFT_FILE}" "${inspection_dir}/release-notes-draft.json"
-            if [ -z "${DOCS_PREVIEW_FILE}" ] || [ ! -s "${DOCS_PREVIEW_FILE}" ]; then
-              echo "::error::Docs preview JSON file was not generated."
-              exit 1
-            fi
-            if [ -z "${DOCS_PREVIEW_MARKDOWN_FILE}" ] || [ ! -s "${DOCS_PREVIEW_MARKDOWN_FILE}" ]; then
-              echo "::error::Docs preview Markdown file was not generated."
-              exit 1
-            fi
+          fi
+          if [ -n "${DOCS_PREVIEW_FILE}" ] && [ -s "${DOCS_PREVIEW_FILE}" ]; then
             cp "${DOCS_PREVIEW_FILE}" "${inspection_dir}/docs-preview.json"
+          fi
+          if [ -n "${DOCS_PREVIEW_MARKDOWN_FILE}" ] && [ -s "${DOCS_PREVIEW_MARKDOWN_FILE}" ]; then
             cp "${DOCS_PREVIEW_MARKDOWN_FILE}" "${inspection_dir}/docs-preview.md"
-          elif [ -n "${DRAFT_FILE}" ] && [ -s "${DRAFT_FILE}" ]; then
-            cp "${DRAFT_FILE}" "${inspection_dir}/release-notes-draft.json"
-            if [ -n "${DOCS_PREVIEW_FILE}" ] && [ -s "${DOCS_PREVIEW_FILE}" ]; then
-              cp "${DOCS_PREVIEW_FILE}" "${inspection_dir}/docs-preview.json"
-            fi
-            if [ -n "${DOCS_PREVIEW_MARKDOWN_FILE}" ] && [ -s "${DOCS_PREVIEW_MARKDOWN_FILE}" ]; then
-              cp "${DOCS_PREVIEW_MARKDOWN_FILE}" "${inspection_dir}/docs-preview.md"
-            fi
+          fi
+          if [ -n "${QUALITY_REPORT_FILE}" ] && [ -s "${QUALITY_REPORT_FILE}" ]; then
+            cp "${QUALITY_REPORT_FILE}" "${inspection_dir}/quality-report.json"
+          fi
+          if [ "${DRAFT_STEP_OUTCOME}" = "success" ] && [ ! -s "${inspection_dir}/quality-report.json" ]; then
+            echo "::error::quality-report.json was not generated."
+            exit 1
           fi
 
           {
             echo "# OpenClaw cloud plugin release inspection"
             echo
+            echo "- draft_step_outcome: ${DRAFT_STEP_OUTCOME}"
             echo "- dry_run: ${DRY_RUN}"
             echo "- version: ${RELEASE_VERSION}"
+            echo "- fault_case: ${FAULT_CASE}"
             echo "- draft_used: ${DRAFT_USED:-unknown}"
             echo "- previous_tag: ${PREVIOUS_TAG:-n/a}"
             echo "- current_tag: ${CURRENT_TAG:-n/a}"
@@ -277,9 +303,13 @@ jobs:
             echo
             echo "Files:"
             echo
-            echo "- release-notes.md"
-            echo "- npm-pack.json"
-            if [ -n "${EVIDENCE_FILE}" ] && [ -s "${EVIDENCE_FILE}" ]; then
+            if [ -f "${inspection_dir}/release-notes.md" ]; then
+              echo "- release-notes.md"
+            fi
+            if [ -f "${inspection_dir}/npm-pack.json" ]; then
+              echo "- npm-pack.json"
+            fi
+            if [ -f "${inspection_dir}/evidence.json" ]; then
               echo "- evidence.json (redacted; no full diff or prompt guidance)"
             fi
             if [ -f "${inspection_dir}/release-notes-draft.json" ]; then
@@ -289,12 +319,17 @@ jobs:
               echo "- docs-preview.md"
               echo "- docs-preview.json"
             fi
+            if [ -f "${inspection_dir}/quality-report.json" ]; then
+              echo "- quality-report.json"
+            fi
           } > "${inspection_dir}/README.md"
 
           {
             echo "### OpenClaw cloud plugin release notes"
             echo
+            echo "- draft_step_outcome: \`${DRAFT_STEP_OUTCOME}\`"
             echo "- dry_run: \`${DRY_RUN}\`"
+            echo "- fault_case: \`${FAULT_CASE}\`"
             echo "- draft_used: \`${DRAFT_USED:-unknown}\`"
             echo "- previous_tag: \`${PREVIOUS_TAG:-n/a}\`"
             echo "- current_tag: \`${CURRENT_TAG:-n/a}\`"
@@ -304,7 +339,7 @@ jobs:
             echo "- validation_attempt_count: \`${VALIDATION_ATTEMPT_COUNT:-n/a}\`"
             echo "- repair_attempt_count: \`${REPAIR_ATTEMPT_COUNT:-n/a}\`"
             echo
-            echo "Download the workflow artifact \`openclaw-cloud-plugin-release-inspection\` to review release-notes.md, release-notes-draft.json, and redacted evidence.json."
+            echo "Download the workflow artifact \`openclaw-cloud-plugin-release-inspection\` to review release-notes.md, quality-report.json, release-notes-draft.json, and redacted evidence.json."
             if [ -f "${inspection_dir}/docs-preview.md" ]; then
               echo
               echo "### MemOS-Docs preview"
@@ -314,7 +349,8 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload release inspection artifact
-        uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.artifact_name || 'openclaw-cloud-plugin-release-inspection' }}
           path: ${{ runner.temp }}/openclaw-cloud-plugin-release-inspection

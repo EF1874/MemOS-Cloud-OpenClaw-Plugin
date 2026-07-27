@@ -14,10 +14,15 @@ import {
   evidenceForInspection,
   ensureSourceHint,
   findPreviousTag,
+  injectReleaseFaultCase,
   main,
   markdownFromDocsPreview,
   postprocessDraftFromEvidence,
+  PRODUCT_ID,
+  qualityReportFromDraft,
+  RELEASE_FAULT_CASES,
   RELEASE_NOTE_GUIDANCE,
+  RELEASE_NOTE_LIMITS,
   RELEASE_NOTE_QUALITY_REQUEST,
   reportExternalFailureFromEnv,
   requestDraft,
@@ -143,6 +148,14 @@ test("adds source-ref category hints from cloud plugin commit subjects", () => {
     {
       short_sha: "c739e9f2",
       subject: "docs: update README",
+    },
+    {
+      short_sha: "98549947",
+      subject: "ci: cover publish confirmation guard dry runs",
+    },
+    {
+      short_sha: "c20bf70a",
+      subject: "fix: compare release tags with semver precedence",
     },
   ]);
 
@@ -495,6 +508,90 @@ test("postprocess fails closed when English and Chinese text cross languages", (
   assert.equal(processed.language_issues.length, 2);
 });
 
+test("postprocess fails closed when cloud plugin docs output is too noisy", () => {
+  const commits = Array.from({ length: 13 }, (_item, index) => {
+    const short = `abc${String(index).padStart(4, "0")}`;
+    return {
+      sha: `${short}${"0".repeat(33)}`,
+      short_sha: short,
+      subject: `feat: improve cloud plugin release note quality ${index + 1} (#${3001 + index})`,
+    };
+  });
+  const noisyItems = Array.from({ length: 13 }, (_item, index) => ({
+    category: "Improved",
+    text_cn: `**云插件优化 ${index + 1}**：优化发布说明展示效果。`,
+    text_en: `**Cloud plugin improvement ${index + 1}**: Refined release-note presentation.`,
+    source_refs: [commits[index].short_sha, `#${3001 + index}`],
+  }));
+  const processed = postprocessDraftFromEvidence(
+    {
+      ok: true,
+      needs_review: false,
+      release_items: noisyItems,
+      coverage: { required_count: 1, covered_required_count: 1, missing_required_count: 0 },
+      warnings: [],
+    },
+    {
+      commits,
+      release_note_guidance: {
+        source_ref_category_hints: commits.map((commit, index) => ({
+          category: "Improved",
+          source_refs: [commit.short_sha, `#${3001 + index}`],
+          subject: commit.subject,
+        })),
+      },
+    },
+  );
+
+  assert.equal(processed.ok, false);
+  assert.equal(processed.needs_review, true);
+  assert.ok(processed.readability_issues.some((issue) => issue.field === "release_items"));
+  assert.equal(processed.validation_report.readability_issue_count, 1);
+});
+
+test("postprocess fails closed when cloud plugin docs bullets are too long", () => {
+  const processed = postprocessDraftFromEvidence(
+    {
+      ok: true,
+      needs_review: false,
+      release_items: [
+        {
+          category: "Improved",
+          text_cn: `**系统事件过滤增强**：${"用于发布说明质量验证的重复中文描述。".repeat(12)}`,
+          text_en: `**System-event filtering**: ${"This repeated English detail is intentionally too verbose for a changelog bullet. ".repeat(6)}`,
+          source_refs: ["abc1234", "#3001"],
+        },
+      ],
+      coverage: { required_count: 1, covered_required_count: 1, missing_required_count: 0 },
+      warnings: [],
+    },
+    {
+      commits: [
+        {
+          sha: "abc12340000000000000000000000000000000",
+          short_sha: "abc1234",
+          subject: "feat: improve cloud plugin release note quality (#3001)",
+        },
+      ],
+      release_note_guidance: {
+        source_ref_category_hints: [
+          {
+            category: "Improved",
+            source_refs: ["abc1234", "#3001"],
+            subject: "feat: improve cloud plugin release note quality (#3001)",
+          },
+        ],
+      },
+    },
+  );
+
+  assert.equal(processed.ok, false);
+  assert.equal(processed.needs_review, true);
+  assert.ok(processed.readability_issues.some((issue) => issue.field === "text_cn"));
+  assert.ok(processed.readability_issues.some((issue) => issue.field === "text_en"));
+  assert.ok(processed.validation_report.repairable);
+});
+
 test("repairs postprocessed language validation issues with exact context", async () => {
   const repairEvidence = {
     commits: [
@@ -658,6 +755,138 @@ test("defaults to three validation repair attempts before failing closed", async
   assert.equal(requests[3].release_notes_repair_context.max_repair_attempts, 3);
 });
 
+test("fault injection covers every required cloud-plugin degradation sample", () => {
+  assert.deepEqual(RELEASE_FAULT_CASES, [
+    "none",
+    "mixed_language",
+    "missing_source_refs",
+    "missing_important_commit",
+    "invalid_source_ref",
+    "thirteen_items",
+    "too_long",
+    "manual_notes_missing_payload",
+  ]);
+  const draft = {
+    release_items: [
+      {
+        category: "Added",
+        text_cn: "新增云插件发布能力。",
+        text_en: "Adds cloud plugin release support.",
+        source_refs: ["abc1234"],
+      },
+    ],
+  };
+  const releaseEvidence = {
+    release_note_guidance: {
+      source_ref_category_hints: [{ source_refs: ["abc1234"] }],
+    },
+  };
+
+  assert.deepEqual(
+    injectReleaseFaultCase(draft, releaseEvidence, "missing_source_refs")
+      .release_items[0].source_refs,
+    [],
+  );
+  assert.match(
+    injectReleaseFaultCase(draft, releaseEvidence, "mixed_language", {
+      phase: "postprocess",
+    }).release_items[0].text_en,
+    /中文/,
+  );
+  assert.equal(
+    injectReleaseFaultCase(draft, releaseEvidence, "thirteen_items", {
+      phase: "postprocess",
+    }).release_items.length,
+    13,
+  );
+});
+
+test("fault injection enters one repair and then accepts a clean draft", async () => {
+  const releaseEvidence = {
+    commits: [
+      {
+        sha: "abc12340000000000000000000000000000000",
+        short_sha: "abc1234",
+        subject: "feat: improve cloud plugin release audit",
+      },
+    ],
+    release_note_guidance: {
+      source_ref_category_hints: [
+        {
+          category: "Added",
+          source_refs: ["abc1234"],
+          subject: "feat: improve cloud plugin release audit",
+        },
+      ],
+    },
+  };
+  const cleanDraft = {
+    ok: true,
+    needs_review: false,
+    release_items: [
+      {
+        category: "Added",
+        text_cn: "**发布审计**：新增云插件发布质量检查。",
+        text_en: "**Release audit**: Adds cloud plugin release quality checks.",
+        source_refs: ["abc1234"],
+      },
+    ],
+    coverage: { required_count: 1, covered_required_count: 1, missing_required_count: 0 },
+    warnings: [],
+  };
+
+  for (const faultCase of [
+    "mixed_language",
+    "missing_source_refs",
+    "missing_important_commit",
+    "invalid_source_ref",
+    "thirteen_items",
+    "too_long",
+  ]) {
+    let requests = 0;
+    const result = await requestValidatedDraft(releaseEvidence, {
+      faultCase,
+      requestImpl: async () => {
+        requests += 1;
+        return cleanDraft;
+      },
+    });
+    assert.equal(result.ok, true, faultCase);
+    assert.equal(result.repair_attempt_count, 1, faultCase);
+    assert.equal(requests, 2, faultCase);
+    assert.ok(result.repair_attempts[0].issues.length > 0, faultCase);
+  }
+});
+
+test("quality report exposes audit limits, attempts, and production source identity", () => {
+  const report = qualityReportFromDraft(
+    {
+      ok: false,
+      needs_review: true,
+      release_items: [],
+      coverage: { needs_review: true, missing_required_count: 1 },
+      validation_attempt_count: 1,
+      repair_attempt_count: 0,
+      repair_attempts: [{ stage: "draft", repair_attempt: 0, ok: false }],
+    },
+    {
+      targetVersion: "0.1.20",
+      previousTag: "v0.1.19",
+      currentTag: "v0.1.20",
+      currentRef: "HEAD",
+      faultCase: "missing_source_refs",
+    },
+  );
+
+  assert.equal(PRODUCT_ID, "openclaw-cloud-plugin");
+  assert.equal(report.product_id, PRODUCT_ID);
+  assert.equal(report.limits.max_items, 12);
+  assert.equal(report.fault_case, "missing_source_refs");
+  assert.equal(report.ok, false);
+  assert.equal(report.validation_attempt_count, 1);
+  assert.ok(report.issues.some((issue) => issue.kind === "empty_release_items"));
+});
+
 test("manual notes require bilingual evidence refs and passed coverage", () => {
   const valid = `## Changelog
 
@@ -696,22 +925,38 @@ test("manual notes require bilingual evidence refs and passed coverage", () => {
   );
 });
 
+test("manual cloud release notes cannot bypass docs readability validation", () => {
+  assert.throws(
+    () =>
+      validateManualNotes(`## Changelog
+
+### Improved
+- noisy cloud release note
+
+<!-- doc-agent-release-notes-json
+{"items":[{"category":"Improved","text_cn":"**云插件优化**：${"用于发布说明质量验证的重复中文描述。".repeat(12)}","text_en":"**Cloud plugin improvement**: ${"This repeated English detail is intentionally too verbose for a changelog bullet. ".repeat(6)}","source_refs":["abc1234"]}],"coverage":{"needs_review":false}}
+-->`),
+    /concise enough/,
+  );
+});
+
 test("manual release notes also produce docs preview outputs", async () => {
   const directory = mkdtempSync(join(tmpdir(), "cloud-plugin-manual-preview-"));
   const previous = { ...process.env };
   try {
     const outputPath = join(directory, "github-output.txt");
     const notesPath = join(directory, "release-notes.md");
+    const sourceRef = runGit(process.cwd(), ["rev-parse", "--short", "HEAD"]);
     Object.assign(process.env, {
       RELEASE_VERSION: "0.1.20",
       RELEASE_NOTES_FILE: notesPath,
       MANUAL_RELEASE_NOTES: `## Changelog
 
 ### Improved
-- **系统事件过滤增强**：自动跳过定时任务、计划提醒和后台命令结果，减少记忆污染。
+- **发布预览护栏**：增强云插件发布前的检查信息。
 
 <!-- doc-agent-release-notes-json
-{"items":[{"category":"Improved","text_cn":"**系统事件过滤增强**：自动跳过定时任务、计划提醒和后台命令结果，减少记忆污染。","text_en":"**System-event filtering**: Skips scheduled tasks, reminders, and background command results to keep memory cleaner.","source_refs":["d053b0a"]}],"coverage":{"needs_review":false,"required_count":1,"covered_required_count":1,"missing_required_count":0}}
+{"items":[{"category":"Improved","text_cn":"**发布预览护栏**：增强云插件发布前的检查信息。","text_en":"**Release preview guardrails**: Improves pre-publish inspection details for the cloud plugin.","source_refs":["${sourceRef}"]}],"coverage":{"needs_review":false,"required_count":0,"covered_required_count":0,"missing_required_count":0}}
 -->`,
       GITHUB_OUTPUT: outputPath,
     });
@@ -724,8 +969,51 @@ test("manual release notes also produce docs preview outputs", async () => {
     const preview = readFileSync(match[1], "utf8");
     assert.match(preview, /MemOS-Docs Plugin Changelog Preview/);
     assert.match(preview, /OpenClaw 云插件/);
-    assert.match(preview, /System-event filtering/);
+    assert.match(preview, /Release preview guardrails/);
     assert.match(readFileSync(notesPath, "utf8"), /doc-agent: source-id=openclaw-cloud-plugin/);
+    const qualityMatch = output.match(
+      /quality_report_file<<__DOC_AGENT_EOF__\n([\s\S]*?)\n__DOC_AGENT_EOF__/,
+    );
+    assert.ok(qualityMatch, "quality report output should be written");
+    const quality = JSON.parse(readFileSync(qualityMatch[1], "utf8"));
+    assert.equal(quality.ok, true);
+    assert.equal(quality.validation_attempt_count, 1);
+  } finally {
+    process.env = previous;
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("manual release notes fail closed when source_refs are absent from real evidence", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "cloud-plugin-manual-invalid-ref-"));
+  const previous = { ...process.env };
+  try {
+    const outputPath = join(directory, "github-output.txt");
+    Object.assign(process.env, {
+      RELEASE_VERSION: "0.1.20",
+      RELEASE_NOTES_FILE: join(directory, "release-notes.md"),
+      MANUAL_RELEASE_NOTES: `## Changelog
+
+### Improved
+- invalid evidence reference
+
+<!-- doc-agent-release-notes-json
+{"items":[{"category":"Improved","text_cn":"**发布预览护栏**：增强云插件发布前的检查信息。","text_en":"**Release preview guardrails**: Improves pre-publish inspection details for the cloud plugin.","source_refs":["deadbeef"]}],"coverage":{"needs_review":false}}
+-->`,
+      GITHUB_OUTPUT: outputPath,
+    });
+
+    await assert.rejects(main(), /Postprocessed release notes require review/);
+
+    const output = readFileSync(outputPath, "utf8");
+    const qualityMatch = output.match(
+      /quality_report_file<<__DOC_AGENT_EOF__\n([\s\S]*?)\n__DOC_AGENT_EOF__/,
+    );
+    assert.ok(qualityMatch, "failed manual notes should still write a quality report");
+    const quality = JSON.parse(readFileSync(qualityMatch[1], "utf8"));
+    assert.equal(quality.ok, false);
+    assert.equal(quality.invalid_item_ref_count, 1);
+    assert.ok(quality.issues.some((issue) => issue.kind === "invalid_source_ref"));
   } finally {
     process.env = previous;
     rmSync(directory, { recursive: true, force: true });
