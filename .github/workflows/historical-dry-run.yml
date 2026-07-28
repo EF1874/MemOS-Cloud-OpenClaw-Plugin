@@ -41,6 +41,7 @@ jobs:
       release_notes: ""
       dry_run: true
       recover_existing_npm_release: false
+      enforce_source_version: false
       artifact_name: openclaw-cloud-plugin-release-inspection-${{ matrix.version }}
       expected_previous_tag: ${{ matrix.expected_previous_tag }}
       expected_current_ref: ${{ matrix.expected_current_ref }}
