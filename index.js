@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createHash } from "node:crypto";
 import {
   addMessage,
   buildConfig,
@@ -23,6 +24,9 @@ import {
   waitForGatewayReady,
 } from "./lib/config-ui-server.js";
 let lastCaptureTime = 0;
+// ponytail: in-process cache; replace with server idempotency for cross-restart or multi-instance guarantees.
+const recentCaptureKeys = new Set();
+const MAX_CAPTURE_KEYS = 1000;
 const conversationCounters = new Map();
 const API_KEY_HELP_URL = "https://memos-dashboard.openmem.net/cn/apikeys/";
 const ENV_FILE_SEARCH_HINTS = ["~/.openclaw/.env", "~/.moltbot/.env", "~/.clawdbot/.env"];
@@ -436,6 +440,57 @@ function pickFullSessionMessages(messages, cfg) {
   return out;
 }
 
+function reserveCapture(payload, rawMessages, ctx, runId) {
+  const sessionIdentity = ctx?.sessionId || ctx?.sessionKey;
+  const stableMessageIdentities = rawMessages
+    .map(
+      (message) =>
+        message?.idempotencyKey ??
+        message?.id ??
+        message?.messageId ??
+        message?.timestamp,
+    )
+    .filter((identity) => identity !== undefined && identity !== null && identity !== "");
+  const eventIdentity = stableMessageIdentities.length
+    ? ["messages", stableMessageIdentities]
+    : runId;
+  if (!sessionIdentity || eventIdentity === undefined || eventIdentity === null || eventIdentity === "") {
+    return null;
+  }
+
+  let captureSnapshot;
+  try {
+    captureSnapshot = JSON.stringify(payload.messages);
+  } catch {
+    return null;
+  }
+  if (!captureSnapshot) return null;
+
+  const key = createHash("sha256")
+    .update(
+      JSON.stringify([
+        payload.user_id,
+        payload.conversation_id,
+        payload.agent_id,
+        payload.app_id,
+        sessionIdentity,
+        eventIdentity,
+        captureSnapshot,
+      ]),
+    )
+    .digest("hex");
+  if (recentCaptureKeys.delete(key)) {
+    recentCaptureKeys.add(key);
+    return { duplicate: true };
+  }
+
+  recentCaptureKeys.add(key);
+  if (recentCaptureKeys.size > MAX_CAPTURE_KEYS) {
+    recentCaptureKeys.delete(recentCaptureKeys.keys().next().value);
+  }
+  return { duplicate: false, key };
+}
+
 function truncate(text, maxLen) {
   if (!text) return "";
   if (!maxLen) return text;
@@ -806,7 +861,8 @@ export default {
       // Skip system events: heartbeat and commands
       // Check the last user message to determine if this was a system event
       const messages = event?.messages || [];
-      const lastUserMsg = messages.slice().reverse().find(m => m?.role === "user");
+      const lastUserIndex = messages.findLastIndex((message) => message?.role === "user");
+      const lastUserMsg = messages[lastUserIndex];
       const lastUserContent = extractText(lastUserMsg?.content || "");
 
       const isHeartbeat = isHeartbeatPrompt(lastUserContent);
@@ -834,9 +890,12 @@ export default {
       if (agentCfg.throttleMs && now - lastCaptureTime < agentCfg.throttleMs) {
         return;
       }
-      lastCaptureTime = now;
 
       try {
+        const rawCaptureMessages =
+          agentCfg.captureStrategy === "full_session"
+            ? event.messages
+            : event.messages.slice(lastUserIndex);
         const messages =
           agentCfg.captureStrategy === "full_session"
             ? pickFullSessionMessages(event.messages, agentCfg)
@@ -845,6 +904,17 @@ export default {
         if (!messages.length) return;
 
         const payload = buildAddMessagePayload(agentCfg, messages, ctx);
+        const captureReservation = reserveCapture(
+          payload,
+          rawCaptureMessages,
+          ctx,
+          event.runId ?? ctx?.runId,
+        );
+        if (captureReservation?.duplicate) {
+          log.info?.("[memos-cloud] add skipped: duplicate agent_end snapshot");
+          return;
+        }
+        lastCaptureTime = now;
         await addMessage(agentCfg, payload);
       } catch (err) {
         log.warn?.(`[memos-cloud] add failed: ${String(err)}`);
