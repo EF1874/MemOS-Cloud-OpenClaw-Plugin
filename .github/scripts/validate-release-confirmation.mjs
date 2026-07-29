@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { appendFileSync } from "node:fs";
 import { cleanVersion, parseSemver } from "../../lib/semver.js";
 
 export function expectedReleaseConfirmation(version) {
@@ -21,28 +22,34 @@ export function validateReleaseChannel({ version, npmDistTag }) {
   }
 
   const isPrerelease = parsed.prerelease.length > 0;
-  if (isPrerelease && tag === "latest") {
+  const prereleaseIdentifier = isPrerelease
+    ? String(parsed.prerelease[0] || "").toLowerCase()
+    : "";
+  const expectedNpmDistTag = isPrerelease
+    ? ["alpha", "beta", "next"].includes(prereleaseIdentifier)
+      ? prereleaseIdentifier
+      : "next"
+    : "latest";
+
+  if (tag !== expectedNpmDistTag) {
     return {
       ok: false,
-      reason:
-        `prerelease version ${cleanVersion(version)} cannot use npm dist-tag 'latest'; ` +
-        "use beta, next, alpha, or another non-latest preview channel.",
-    };
-  }
-  if (!isPrerelease && tag !== "latest") {
-    return {
-      ok: false,
-      reason:
-        `stable version ${cleanVersion(version)} must use npm dist-tag 'latest'; ` +
-        `got '${tag}'. This workflow does not support promoting a stable version from '${tag}' later.`,
+      reason: isPrerelease
+        ? `prerelease version ${cleanVersion(version)} must use npm dist-tag '${expectedNpmDistTag}'; got '${tag}'.`
+        : `stable version ${cleanVersion(version)} must use npm dist-tag 'latest'; got '${tag}'.`,
     };
   }
 
   return {
     ok: true,
+    release_channel: isPrerelease ? "prerelease" : "stable",
+    prerelease_identifier: prereleaseIdentifier,
+    expected_npm_dist_tag: expectedNpmDistTag,
+    github_release_prerelease: isPrerelease,
+    docs_sync_expected: !isPrerelease,
     reason: isPrerelease
-      ? `prerelease version and npm dist-tag '${tag}' are compatible.`
-      : "stable version and npm dist-tag 'latest' are compatible.",
+      ? `prerelease version will publish on npm '${tag}', create a GitHub Prerelease, and skip formal Docs sync.`
+      : "stable version will publish on npm 'latest', create a published GitHub Release, and enter formal Docs sync.",
   };
 }
 
@@ -98,6 +105,20 @@ export function main(env = process.env) {
   console.log(result.reason);
   if (result.expected) {
     console.log(`Expected confirmation: ${result.expected}`);
+  }
+  if (env.GITHUB_OUTPUT) {
+    appendFileSync(
+      env.GITHUB_OUTPUT,
+      [
+        `release_channel=${channel.release_channel}`,
+        `prerelease_identifier=${channel.prerelease_identifier}`,
+        `npm_dist_tag=${channel.expected_npm_dist_tag}`,
+        `github_release_prerelease=${channel.github_release_prerelease}`,
+        `docs_sync_expected=${channel.docs_sync_expected}`,
+        "",
+      ].join("\n"),
+      "utf8",
+    );
   }
 }
 

@@ -9,6 +9,10 @@ on:
       - ".github/workflows/**"
       - ".github/scripts/validate-github-release-inventory.mjs"
       - ".github/scripts/validate-github-release-inventory.test.mjs"
+      - ".github/scripts/validate-release-confirmation.mjs"
+      - ".github/scripts/validate-release-confirmation.test.mjs"
+      - ".github/scripts/validate-release-source-version.mjs"
+      - ".github/scripts/validate-release-source-version.test.mjs"
 
 permissions:
   contents: read
@@ -54,4 +58,4 @@ jobs:
 
       - name: Validate reusable workflow boundaries
         shell: bash
-        run: node --test .github/scripts/validate-github-release-inventory.test.mjs
+        run: node --test .github/scripts/validate-github-release-inventory.test.mjs .github/scripts/validate-release-confirmation.test.mjs .github/scripts/validate-release-source-version.test.mjs

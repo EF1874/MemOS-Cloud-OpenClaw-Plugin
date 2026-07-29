@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import {
   expectedReleaseConfirmation,
+  main,
   validateReleaseChannel,
   validateReleaseConfirmation,
 } from "./validate-release-confirmation.mjs";
@@ -24,16 +28,40 @@ test("does not require publish confirmation for dry runs", () => {
 });
 
 test("requires stable versions to use latest and prereleases to use a preview channel", () => {
-  assert.equal(validateReleaseChannel({ version: "0.1.20", npmDistTag: "latest" }).ok, true);
-  assert.equal(validateReleaseChannel({ version: "0.1.20-beta.1", npmDistTag: "beta" }).ok, true);
-  assert.equal(validateReleaseChannel({ version: "0.1.20-rc.1", npmDistTag: "next" }).ok, true);
+  const stable = validateReleaseChannel({ version: "0.1.20", npmDistTag: "latest" });
+  assert.equal(stable.ok, true);
+  assert.equal(stable.release_channel, "stable");
+  assert.equal(stable.github_release_prerelease, false);
+  assert.equal(stable.docs_sync_expected, true);
+
+  const beta = validateReleaseChannel({ version: "0.1.20-beta.1", npmDistTag: "beta" });
+  assert.equal(beta.ok, true);
+  assert.equal(beta.release_channel, "prerelease");
+  assert.equal(beta.prerelease_identifier, "beta");
+  assert.equal(beta.expected_npm_dist_tag, "beta");
+  assert.equal(beta.github_release_prerelease, true);
+  assert.equal(beta.docs_sync_expected, false);
+
+  const releaseCandidate = validateReleaseChannel({
+    version: "0.1.20-rc.1",
+    npmDistTag: "next",
+  });
+  assert.equal(releaseCandidate.ok, true);
+  assert.equal(releaseCandidate.expected_npm_dist_tag, "next");
 
   const prereleaseOnLatest = validateReleaseChannel({
     version: "0.1.20-beta.1",
     npmDistTag: "latest",
   });
   assert.equal(prereleaseOnLatest.ok, false);
-  assert.match(prereleaseOnLatest.reason, /cannot use npm dist-tag 'latest'/);
+  assert.match(prereleaseOnLatest.reason, /must use npm dist-tag 'beta'/);
+
+  const betaOnAlpha = validateReleaseChannel({
+    version: "0.1.20-beta.1",
+    npmDistTag: "alpha",
+  });
+  assert.equal(betaOnAlpha.ok, false);
+  assert.match(betaOnAlpha.reason, /must use npm dist-tag 'beta'/);
 
   const stableOnBeta = validateReleaseChannel({ version: "0.1.20", npmDistTag: "beta" });
   assert.equal(stableOnBeta.ok, false);
@@ -65,4 +93,21 @@ test("requires exact publish confirmation before a real release", () => {
     }).ok,
     true,
   );
+});
+
+test("exports deterministic beta and Docs routing metadata for workflows", () => {
+  const output = join(mkdtempSync(join(tmpdir(), "openclaw-release-policy-")), "output");
+  main({
+    RELEASE_VERSION: "0.1.20-beta.1",
+    NPM_DIST_TAG: "beta",
+    DRY_RUN: "true",
+    PUBLISH_CONFIRMATION: "",
+    GITHUB_OUTPUT: output,
+  });
+  const values = readFileSync(output, "utf8");
+  assert.match(values, /^release_channel=prerelease$/m);
+  assert.match(values, /^prerelease_identifier=beta$/m);
+  assert.match(values, /^npm_dist_tag=beta$/m);
+  assert.match(values, /^github_release_prerelease=true$/m);
+  assert.match(values, /^docs_sync_expected=false$/m);
 });

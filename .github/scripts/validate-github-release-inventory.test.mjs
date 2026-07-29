@@ -97,7 +97,7 @@ test("verifies target, release flags, and the exact production source id", () =>
   assert.ok(invalid.errors.some((error) => /exactly one Doc Agent source id/.test(error)));
 });
 
-test("release workflow pins recovery to npm gitHead and reconciles create responses", () => {
+test("release workflow publishes committed main versions and pins recovery to npm gitHead", () => {
   const workflow = readFileSync(
     new URL("../workflows/release.yml", import.meta.url),
     "utf8",
@@ -119,11 +119,31 @@ test("release workflow pins recovery to npm gitHead and reconciles create respon
     workflow,
     /git tag -a "\$\{release_tag\}" "\$\{RELEASE_COMMIT_SHA\}"/,
   );
-  assert.match(workflow, /push durable release branch/);
+  assert.match(workflow, /Validate committed release source version/);
+  assert.match(workflow, /validate-release-source-version\.mjs/);
+  assert.match(
+    workflow,
+    /Publishing the already-reviewed \$\{DEFAULT_BRANCH\} commit \$\{release_commit_sha\}/,
+  );
+  assert.match(workflow, /is no longer the head of \$\{DEFAULT_BRANCH\}/);
+  assert.match(
+    workflow,
+    /Normal real releases require git_ref to be the exact 40-character source_commit approved in the dry-run/,
+  );
+  assert.match(
+    workflow,
+    /Recovery requires \$\{PACKAGE_NAME\}@\$\{RELEASE_VERSION\} to already exist on npm/,
+  );
+  assert.match(workflow, /release-source\.json/);
+  assert.match(
+    workflow,
+    /EXPECTED_RELEASE_PRERELEASE: \$\{\{ steps\.release_policy\.outputs\.github_release_prerelease \}\}/,
+  );
+  assert.match(workflow, /release_flags\+=\(--prerelease\)/);
   assert.ok(
-    workflow.indexOf("push durable release branch") <
+    workflow.indexOf("Validate committed release source version") <
       workflow.indexOf('npm publish --access public --tag "${NPM_DIST_TAG}"'),
-    "the recoverable release commit must be pushed before npm publish",
+    "the committed source version gate must run before npm publish",
   );
   assert.match(
     workflow,
@@ -137,21 +157,15 @@ test("release workflow pins recovery to npm gitHead and reconciles create respon
   assert.match(workflow, /report_exhausted_failure "github-release-create"/);
   assert.match(workflow, /report_exhausted_failure "github-release-verification"/);
   assert.match(workflow, /report_exhausted_failure "github-release-tag-push"/);
-  assert.match(workflow, /report_exhausted_failure "github-release-branch-push"/);
-  assert.match(workflow, /report_exhausted_failure "github-release-pr-create"/);
-  assert.match(workflow, /should_create_version_pr=true/);
-  assert.match(
-    workflow,
-    /Release branch \$\{release_branch\} already points at this commit\.[\s\S]+should_create_version_pr=true/,
-  );
-  assert.match(
-    workflow,
-    /::error::Failed to create release PR automatically after three attempts/,
-  );
   assert.doesNotMatch(
     workflow,
-    /::warning::Failed to create release PR automatically after three attempts/,
+    /npm version "\$\{RELEASE_VERSION\}".*--no-git-tag-version/,
   );
+  assert.doesNotMatch(workflow, /npm run sync-version/);
+  assert.doesNotMatch(workflow, /pull-requests: write/);
+  assert.doesNotMatch(workflow, /gh pr create/);
+  assert.doesNotMatch(workflow, /release_branch/);
+  assert.doesNotMatch(workflow, /create_version_pr/);
   assert.doesNotMatch(workflow, /gh release view/);
 });
 
@@ -232,10 +246,29 @@ test("dry-run callers use least privilege and do not inherit all repository secr
     assert.doesNotMatch(workflow, /pull-requests: write/);
   }
 
+  const postMerge = readFileSync(
+    new URL("../workflows/post-merge-dry-run.yml", import.meta.url),
+    "utf8",
+  );
+  assert.match(postMerge, /version: \$\{\{ needs\.release_source\.outputs\.version \}\}/);
+  assert.match(
+    postMerge,
+    /expected_current_ref: \$\{\{ needs\.release_source\.outputs\.source_sha \}\}/,
+  );
+  assert.match(postMerge, /enforce_source_version: true/);
+  assert.doesNotMatch(postMerge, /version: "0\.1\.19"/);
+
+  const preMergeDryRun = readFileSync(
+    new URL("../workflows/pre-merge-dry-run.yml", import.meta.url),
+    "utf8",
+  );
+  assert.match(preMergeDryRun, /enforce_source_version: false/);
+
   const historical = readFileSync(
     new URL("../workflows/historical-dry-run.yml", import.meta.url),
     "utf8",
   );
+  assert.match(historical, /enforce_source_version: false/);
   assert.match(historical, /github\.event\.repository\.default_branch/);
   for (const [version, previousTag] of [
     ["0.1.15", "v0.1.14"],
@@ -265,7 +298,7 @@ test("dry-run callers use least privilege and do not inherit all repository secr
   );
   assert.match(
     contractLint,
-    /node --test \.github\/scripts\/validate-github-release-inventory\.test\.mjs/,
+    /node --test \.github\/scripts\/validate-github-release-inventory\.test\.mjs \.github\/scripts\/validate-release-confirmation\.test\.mjs \.github\/scripts\/validate-release-source-version\.test\.mjs/,
   );
   assert.doesNotMatch(contractLint, /secrets:/);
   assert.doesNotMatch(contractLint, /contents: write/);
