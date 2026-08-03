@@ -150,6 +150,15 @@ test("release workflow publishes committed main versions and pins recovery to np
     /--target "\$\{RELEASE_COMMIT_SHA\}"/,
   );
   assert.match(workflow, /gh api --paginate --slurp/);
+  assert.match(workflow, /wait-for-npm-release\.mjs/);
+  assert.match(workflow, /NPM_VISIBILITY_TIMEOUT_SECONDS: "150"/);
+  assert.match(workflow, /NPM_VISIBILITY_INTERVAL_SECONDS: "10"/);
+  assert.match(
+    workflow,
+    /version, gitHead, and dist-tag were not all visible within \$\{NPM_VISIBILITY_TIMEOUT_SECONDS\}s/,
+  );
+  assert.match(workflow, /GITHUB_RELEASE_VISIBILITY_ATTEMPTS: "12"/);
+  assert.match(workflow, /GITHUB_RELEASE_VISIBILITY_INTERVAL_SECONDS: "10"/);
   assert.match(
     workflow,
     /Refusing to issue a second create request/,
@@ -190,7 +199,17 @@ test("real publishes are branch-gated and reusable callers are immutable dry run
     );
     assert.match(workflow, /dry_run: true/);
     assert.doesNotMatch(workflow, /dry_run: false/);
+    if (name !== "historical-dry-run.yml") {
+      assert.match(workflow, /wait-for-npm-release\.mjs/);
+      assert.match(workflow, /wait-for-npm-release\.test\.mjs/);
+    }
   }
+
+  const contractLintWorkflow = readFileSync(
+    new URL("../workflows/workflow-contract-lint.yml", import.meta.url),
+    "utf8",
+  );
+  assert.match(contractLintWorkflow, /wait-for-npm-release\.test\.mjs/);
 });
 
 test("dry-run callers use least privilege and do not inherit all repository secrets", () => {

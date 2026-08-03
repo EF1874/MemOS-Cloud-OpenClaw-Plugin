@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
@@ -1828,9 +1828,17 @@ export async function reportExternalFailureFromEnv({ fetchImpl = fetch } = {}) {
   const phase = String(process.env.RELEASE_FAILURE_PHASE || "").trim();
   const attemptDir = String(process.env.RELEASE_FAILURE_ATTEMPT_DIR || "").trim();
   if (!phase || !attemptDir) fail("RELEASE_FAILURE_PHASE and RELEASE_FAILURE_ATTEMPT_DIR are required.");
-  const attempts = [1, 2, 3].map((attempt) => {
+  let logNames = [];
+  try {
+    logNames = readdirSync(attemptDir)
+      .filter((name) => /^\d+\.log$/.test(name))
+      .sort((left, right) => Number.parseInt(left, 10) - Number.parseInt(right, 10))
+      .slice(0, 20);
+  } catch {}
+  if (logNames.length === 0) logNames = ["1.log"];
+  const attempts = logNames.map((name) => {
     let message = "attempt log is unavailable";
-    try { message = readFileSync(join(attemptDir, `${attempt}.log`), "utf8"); } catch {}
+    try { message = readFileSync(join(attemptDir, name), "utf8"); } catch {}
     return { error_code: phase.toUpperCase().replace(/[^A-Z0-9]+/g, "_"), message: cleanError(message), retryable: true };
   });
   return reportFailure({
@@ -1840,7 +1848,7 @@ export async function reportExternalFailureFromEnv({ fetchImpl = fetch } = {}) {
       current_tag: process.env.RELEASE_TAG || `${CURRENT_TAG_PREFIX}${cleanVersion(process.env.RELEASE_VERSION)}`,
     },
     attempts,
-    finalError: attempts[2].message,
+    finalError: attempts.at(-1).message,
     phase,
     fetchImpl,
   });
