@@ -201,8 +201,12 @@ jobs:
                   return 0
                 fi
                 sed -n '1,80p' "${out}" >&2
-                echo "::error::${PACKAGE_NAME}@${RELEASE_VERSION} has no trustworthy 40-character npm gitHead." >&2
-                return 1
+                if [ "${attempt}" = 3 ]; then
+                  echo "::error::${PACKAGE_NAME}@${RELEASE_VERSION} has no trustworthy 40-character npm gitHead after three attempts." >&2
+                  return 1
+                fi
+                sleep "$((attempt * 5))"
+                continue
               fi
               sed -n '1,80p' "${out}" >&2
               if [ "${attempt}" = 3 ]; then
@@ -519,6 +523,9 @@ jobs:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           DOC_AGENT_RELEASE_FAILURE_URL: ${{ secrets.DOC_AGENT_RELEASE_FAILURE_URL }}
           DOC_AGENT_RELEASE_NOTES_DRAFT_TOKEN: ${{ secrets.DOC_AGENT_RELEASE_NOTES_DRAFT_TOKEN }}
+          NPM_VISIBILITY_TIMEOUT_SECONDS: "150"
+          NPM_VISIBILITY_INTERVAL_SECONDS: "10"
+          NPM_VISIBILITY_REQUEST_TIMEOUT_SECONDS: "8"
         run: |
           set -euo pipefail
 
@@ -570,8 +577,12 @@ jobs:
                   return 0
                 fi
                 sed -n '1,80p' "${out}" >&2
-                echo "::error::${PACKAGE_NAME}@${RELEASE_VERSION} has no trustworthy 40-character npm gitHead." >&2
-                return 1
+                if [ "${attempt}" = 3 ]; then
+                  echo "::error::${PACKAGE_NAME}@${RELEASE_VERSION} has no trustworthy 40-character npm gitHead after three attempts." >&2
+                  return 1
+                fi
+                sleep "$((attempt * 5))"
+                continue
               fi
               sed -n '1,80p' "${out}" >&2
               if [ "${attempt}" = 3 ]; then
@@ -580,6 +591,17 @@ jobs:
               fi
               sleep "$((attempt * 5))"
             done
+          }
+          wait_for_npm_release_visibility() {
+            local expected_git_head="$1"
+            NPM_PACKAGE_NAME="${PACKAGE_NAME}" \
+              NPM_RELEASE_VERSION="${RELEASE_VERSION}" \
+              NPM_DIST_TAG="${NPM_DIST_TAG}" \
+              NPM_EXPECTED_GIT_HEAD="${expected_git_head}" \
+              NPM_VISIBILITY_TIMEOUT_SECONDS="${NPM_VISIBILITY_TIMEOUT_SECONDS}" \
+              NPM_VISIBILITY_INTERVAL_SECONDS="${NPM_VISIBILITY_INTERVAL_SECONDS}" \
+              NPM_VISIBILITY_REQUEST_TIMEOUT_SECONDS="${NPM_VISIBILITY_REQUEST_TIMEOUT_SECONDS}" \
+              node .github/scripts/wait-for-npm-release.mjs
           }
           ensure_commit_available() {
             local commit_sha="$1"
@@ -764,45 +786,40 @@ jobs:
               publish_status=$?
               set -e
               sed -n '1,160p' "${attempt_dir}/${attempt}.log"
-              if [ "${publish_status}" = 0 ]; then
-                for poll_attempt in 1 2 3; do
-                  if npm_version_exists; then
-                    publish_confirmed=true
-                    break
-                  fi
-                  sleep "$((poll_attempt * 2))"
-                done
-                if [ "${publish_confirmed}" != "true" ]; then
-                  echo "::error::npm publish returned success, but the version could not be verified. Refusing to issue a second publish request."
-                  exit 1
+              set +e
+              wait_for_npm_release_visibility "${release_commit_sha}" 2>&1 |
+                tee -a "${attempt_dir}/${attempt}.log"
+              visibility_status="${PIPESTATUS[0]}"
+              set -e
+              if [ "${visibility_status}" = 0 ]; then
+                publish_confirmed=true
+              elif [ "${visibility_status}" = 2 ]; then
+                report_exhausted_failure "npm-publish-verification" "${attempt_dir}"
+                echo "::error::npm exposed immutable metadata that does not match the reviewed release source; refusing any publish retry."
+                exit 1
+              fi
+              if [ "${publish_confirmed}" = "true" ]; then
+                if [ "${publish_status}" = 0 ]; then
+                  echo "npm publish and the bounded registry visibility check both succeeded."
+                else
+                  echo "Publish returned an error, but npm now contains the fully verified release; refusing a duplicate publish."
                 fi
                 break
               fi
-              for poll_attempt in 1 2 3; do
-                if npm_version_exists; then
-                  publish_confirmed=true
-                  break
-                fi
-                sleep "$((poll_attempt * 2))"
-              done
-              if [ "${publish_confirmed}" = "true" ]; then
-                echo "Publish returned an error, but npm now contains the requested version; refusing a duplicate publish."
-                break
+              if [ "${publish_status}" = 0 ]; then
+                report_exhausted_failure "npm-publish-verification" "${attempt_dir}"
+                echo "::error::npm publish returned success, but version, gitHead, and dist-tag were not all visible within ${NPM_VISIBILITY_TIMEOUT_SECONDS}s. Refusing to issue a second publish request."
+                exit 1
               fi
               if [ "${attempt}" = 3 ]; then
                 report_exhausted_failure "npm-publish" "${attempt_dir}"
-                echo "::error::npm publish failed after three attempts."
+                echo "::error::npm publish failed after three attempts, and no fully verified release became visible."
                 exit 1
               fi
               sleep "$((attempt * 5))"
             done
             if [ "${publish_confirmed}" != "true" ]; then
               echo "::error::npm publish appeared to finish, but ${PACKAGE_NAME}@${RELEASE_VERSION} is still not visible."
-              exit 1
-            fi
-            npm_git_head="$(npm_release_git_head)"
-            if [ "${npm_git_head}" != "${release_commit_sha}" ]; then
-              echo "::error::Published npm gitHead ${npm_git_head} does not match release commit ${release_commit_sha}."
               exit 1
             fi
           fi
@@ -820,6 +837,8 @@ jobs:
           RELEASE_COMMIT_SHA: ${{ steps.publish_npm.outputs.release_commit_sha }}
           DOC_AGENT_RELEASE_FAILURE_URL: ${{ secrets.DOC_AGENT_RELEASE_FAILURE_URL }}
           DOC_AGENT_RELEASE_NOTES_DRAFT_TOKEN: ${{ secrets.DOC_AGENT_RELEASE_NOTES_DRAFT_TOKEN }}
+          GITHUB_RELEASE_VISIBILITY_ATTEMPTS: "12"
+          GITHUB_RELEASE_VISIBILITY_INTERVAL_SECONDS: "10"
         run: |
           set -euo pipefail
           if [ -z "${RELEASE_NOTES_FILE}" ] || [ ! -s "${RELEASE_NOTES_FILE}" ]; then
@@ -950,7 +969,7 @@ jobs:
               echo "::endgroup::"
 
               release_verified=false
-              for poll_attempt in 1 2 3; do
+              for poll_attempt in $(seq 1 "${GITHUB_RELEASE_VISIBILITY_ATTEMPTS}"); do
                 refresh_release_inventory
                 set +e
                 release_inventory_report="$(inspect_release_inventory true)"
@@ -972,8 +991,8 @@ jobs:
                   echo "::error::${release_inventory_report}"
                   exit 1
                 fi
-                if [ "${poll_attempt}" -lt 3 ]; then
-                  sleep "$((poll_attempt * 2))"
+                if [ "${poll_attempt}" -lt "${GITHUB_RELEASE_VISIBILITY_ATTEMPTS}" ]; then
+                  sleep "${GITHUB_RELEASE_VISIBILITY_INTERVAL_SECONDS}"
                 fi
               done
 

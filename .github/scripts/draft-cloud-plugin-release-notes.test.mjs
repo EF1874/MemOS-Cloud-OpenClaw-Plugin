@@ -1284,6 +1284,40 @@ test("reports three external-operation attempt logs with a sanitized phase", asy
   }
 });
 
+test("reports the real bounded logs in numeric order without inventing missing attempts", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "cloud-plugin-visibility-failure-"));
+  const previous = { ...process.env };
+  try {
+    writeFileSync(join(directory, "1.log"), "first visibility check");
+    writeFileSync(join(directory, "10.log"), "tenth visibility check");
+    writeFileSync(join(directory, "2.log"), "second visibility check");
+    Object.assign(process.env, {
+      RELEASE_FAILURE_PHASE: "npm-publish-verification",
+      RELEASE_FAILURE_ATTEMPT_DIR: directory,
+      RELEASE_VERSION: "0.1.20",
+      RELEASE_TAG: "v0.1.20",
+      DOC_AGENT_RELEASE_FAILURE_URL: "https://example.invalid/failure",
+      DOC_AGENT_RELEASE_NOTES_DRAFT_TOKEN: "test-token",
+    });
+    let report;
+    await reportExternalFailureFromEnv({
+      fetchImpl: async (_url, options) => {
+        report = JSON.parse(options.body);
+        return response(200, { ok: true });
+      },
+    });
+    assert.deepEqual(report.attempts.map((item) => item.message), [
+      "first visibility check",
+      "second visibility check",
+      "tenth visibility check",
+    ]);
+    assert.equal(report.final_error, "tenth visibility check");
+  } finally {
+    process.env = previous;
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("retries transient draft failures and passes prior error context", async () => {
   const previous = { ...process.env };
   try {

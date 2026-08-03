@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - "docs-sync/**"
+      - "fix/**"
     paths:
       - ".github/workflows/**"
       - ".github/scripts/validate-github-release-inventory.mjs"
@@ -13,6 +14,8 @@ on:
       - ".github/scripts/validate-release-confirmation.test.mjs"
       - ".github/scripts/validate-release-source-version.mjs"
       - ".github/scripts/validate-release-source-version.test.mjs"
+      - ".github/scripts/wait-for-npm-release.mjs"
+      - ".github/scripts/wait-for-npm-release.test.mjs"
 
 permissions:
   contents: read
@@ -58,4 +61,4 @@ jobs:
 
       - name: Validate reusable workflow boundaries
         shell: bash
-        run: node --test .github/scripts/validate-github-release-inventory.test.mjs .github/scripts/validate-release-confirmation.test.mjs .github/scripts/validate-release-source-version.test.mjs
+        run: node --test .github/scripts/validate-github-release-inventory.test.mjs .github/scripts/validate-release-confirmation.test.mjs .github/scripts/validate-release-source-version.test.mjs .github/scripts/wait-for-npm-release.test.mjs
