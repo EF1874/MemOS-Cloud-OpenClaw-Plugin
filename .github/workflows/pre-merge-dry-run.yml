@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - "docs-sync/**"
+      - "fix/**"
     paths:
       - ".github/workflows/release.yml"
       - ".github/workflows/release-dry-run.yml"

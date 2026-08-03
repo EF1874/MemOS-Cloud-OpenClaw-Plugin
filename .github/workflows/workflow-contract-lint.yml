@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - "docs-sync/**"
+      - "fix/**"
     paths:
       - ".github/workflows/**"
       - ".github/scripts/validate-github-release-inventory.mjs"

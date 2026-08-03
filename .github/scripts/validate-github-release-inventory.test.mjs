@@ -209,6 +209,12 @@ test("real publishes are branch-gated and reusable callers are immutable dry run
     new URL("../workflows/workflow-contract-lint.yml", import.meta.url),
     "utf8",
   );
+  const preMergeWorkflow = readFileSync(
+    new URL("../workflows/pre-merge-dry-run.yml", import.meta.url),
+    "utf8",
+  );
+  assert.match(preMergeWorkflow, /- "fix\/\*\*"/);
+  assert.match(contractLintWorkflow, /- "fix\/\*\*"/);
   assert.match(contractLintWorkflow, /wait-for-npm-release\.test\.mjs/);
 });
 
