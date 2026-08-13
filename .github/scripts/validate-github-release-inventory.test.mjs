@@ -97,6 +97,19 @@ test("verifies target, release flags, and the exact production source id", () =>
   assert.ok(invalid.errors.some((error) => /exactly one Doc Agent source id/.test(error)));
 });
 
+test("accepts an already published matching release as an idempotent automatic Draft rerun", () => {
+  const report = inspectReleaseInventory({
+    pages: [[release({ draft: false })]],
+    tag: "v0.1.20",
+    expectedDraft: true,
+    expectedPrerelease: false,
+    expectedTargetCommitish: "abc123",
+    allowPublishedForDraftRerun: true,
+  });
+  assert.equal(report.ok, true);
+  assert.equal(report.state, "existing");
+});
+
 test("release workflow publishes committed main versions and pins recovery to npm gitHead", () => {
   const workflow = readFileSync(
     new URL("../workflows/release.yml", import.meta.url),
@@ -159,9 +172,19 @@ test("release workflow publishes committed main versions and pins recovery to np
   );
   assert.match(workflow, /GITHUB_RELEASE_VISIBILITY_ATTEMPTS: "12"/);
   assert.match(workflow, /GITHUB_RELEASE_VISIBILITY_INTERVAL_SECONDS: "10"/);
+  assert.match(workflow, /EXPECTED_RELEASE_DRAFT="\$\{CREATE_DRAFT_RELEASE\}"/);
+  assert.match(workflow, /ALLOW_PUBLISHED_FOR_DRAFT_RERUN="\$\{CREATE_DRAFT_RELEASE\}"/);
   assert.match(
     workflow,
     /Refusing to issue a second create request/,
+  );
+  assert.match(
+    workflow,
+    /Verified resume mode enabled; npm version exists, so publish is skipped/,
+  );
+  assert.match(
+    workflow,
+    /this automatic release is locked to merged commit \$\{AUTOMATIC_RELEASE_TARGET\}/,
   );
   assert.match(workflow, /report_exhausted_failure "github-release-create"/);
   assert.match(workflow, /report_exhausted_failure "github-release-verification"/);
@@ -176,9 +199,13 @@ test("release workflow publishes committed main versions and pins recovery to np
   assert.doesNotMatch(workflow, /release_branch/);
   assert.doesNotMatch(workflow, /create_version_pr/);
   assert.doesNotMatch(workflow, /gh release view/);
+  assert.match(
+    workflow,
+    /CREATE_DRAFT_RELEASE: \$\{\{ github\.event_name == 'pull_request' \|\| inputs\.recover_existing_npm_release == true \}\}/,
+  );
 });
 
-test("real publishes are branch-gated and reusable callers are immutable dry runs", () => {
+test("real publishes are version-transition-gated and reusable callers are immutable dry runs", () => {
   const releaseWorkflow = readFileSync(
     new URL("../workflows/release.yml", import.meta.url),
     "utf8",
@@ -186,6 +213,20 @@ test("real publishes are branch-gated and reusable callers are immutable dry run
   assert.match(
     releaseWorkflow,
     /Real releases must be dispatched from the protected default branch/,
+  );
+  assert.match(releaseWorkflow, /pull_request:\s*\n\s*types: \[closed\]/);
+  assert.match(releaseWorkflow, /resolve-auto-release\.mjs/);
+  assert.match(releaseWorkflow, /PR_BASE_SHA: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/);
+  assert.doesNotMatch(releaseWorkflow, /\^release\/v/);
+  assert.match(releaseWorkflow, /--draft/);
+  assert.match(
+    releaseWorkflow,
+    /npm \$\{RELEASE_VERSION\} and tag \$\{release_tag\} were verified before the Draft was created/,
+  );
+  assert.ok(
+    releaseWorkflow.indexOf('npm publish --access public --tag "${NPM_DIST_TAG}"') <
+      releaseWorkflow.indexOf("release_flags+=(--draft)"),
+    "npm must be published and verified before the human-reviewed Draft is created",
   );
 
   for (const name of [
@@ -215,7 +256,15 @@ test("real publishes are branch-gated and reusable callers are immutable dry run
   );
   assert.match(preMergeWorkflow, /- "fix\/\*\*"/);
   assert.match(contractLintWorkflow, /- "fix\/\*\*"/);
+  assert.match(preMergeWorkflow, /pull_request:/);
+  assert.match(preMergeWorkflow, /Validate proposed four-file version transition/);
+  assert.match(preMergeWorkflow, /ref: \$\{\{ github\.sha \}\}/);
+  assert.doesNotMatch(contractLintWorkflow, /- "release\/v\*\*"/);
+  assert.doesNotMatch(preMergeWorkflow, /- "release\/v\*\*"/);
+  assert.match(contractLintWorkflow, /resolve-auto-release\.test\.mjs/);
   assert.match(contractLintWorkflow, /wait-for-npm-release\.test\.mjs/);
+  assert.match(releaseWorkflow, /^permissions:\s*\n\s*contents: read/m);
+  assert.match(releaseWorkflow, /publish:\s*\n[\s\S]*?permissions:\s*\n\s*contents: write/);
 });
 
 test("dry-run callers use least privilege and do not inherit all repository secrets", () => {
@@ -231,7 +280,7 @@ test("dry-run callers use least privilege and do not inherit all repository secr
   assert.match(releaseWorkflow, /NODE_AUTH_TOKEN: \$\{\{ secrets\.NPM_TOKEN \}\}/);
   assert.match(
     releaseWorkflow,
-    /persist-credentials: \$\{\{ inputs\.dry_run != true \}\}/,
+    /persist-credentials: \$\{\{ github\.event_name == 'pull_request' \|\| inputs\.dry_run != true \}\}/,
   );
   assert.match(dryRunWorkflow, /workflow_call:/);
   assert.match(dryRunWorkflow, /permissions:\s*\n\s*contents: read/);
@@ -323,7 +372,7 @@ test("dry-run callers use least privilege and do not inherit all repository secr
   );
   assert.match(
     contractLint,
-    /node --test \.github\/scripts\/validate-github-release-inventory\.test\.mjs \.github\/scripts\/validate-release-confirmation\.test\.mjs \.github\/scripts\/validate-release-source-version\.test\.mjs/,
+    /node --test \.github\/scripts\/resolve-auto-release\.test\.mjs \.github\/scripts\/validate-github-release-inventory\.test\.mjs \.github\/scripts\/validate-release-confirmation\.test\.mjs \.github\/scripts\/validate-release-source-version\.test\.mjs/,
   );
   assert.doesNotMatch(contractLint, /secrets:/);
   assert.doesNotMatch(contractLint, /contents: write/);

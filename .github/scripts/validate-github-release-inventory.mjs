@@ -43,6 +43,7 @@ export function inspectReleaseInventory({
   expectedTargetCommitish,
   requiredSourceId = DOC_AGENT_SOURCE_ID,
   requireExisting = false,
+  allowPublishedForDraftRerun = false,
 } = {}) {
   const releaseTag = String(tag || "").trim();
   const matches = flattenReleasePages(pages).filter(
@@ -84,7 +85,8 @@ export function inspectReleaseInventory({
   const release = matches[0];
   if (
     typeof expectedDraft === "boolean" &&
-    Boolean(release.draft) !== expectedDraft
+    Boolean(release.draft) !== expectedDraft &&
+    !(expectedDraft && allowPublishedForDraftRerun && !release.draft)
   ) {
     errors.push(
       `GitHub Release ${releaseTag} draft=${Boolean(release.draft)}, expected ${expectedDraft}`,
@@ -160,6 +162,8 @@ export function main() {
       DOC_AGENT_SOURCE_ID,
     requireExisting:
       String(process.env.REQUIRE_EXISTING_RELEASE || "false").trim() === "true",
+    allowPublishedForDraftRerun:
+      String(process.env.ALLOW_PUBLISHED_FOR_DRAFT_RERUN || "false").trim() === "true",
   });
   process.stdout.write(`${JSON.stringify(report)}\n`);
   if (!report.ok) process.exitCode = 1;

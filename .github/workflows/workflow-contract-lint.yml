@@ -1,6 +1,21 @@
 name: OpenClaw Cloud Plugin — Workflow Contract Lint
 
 on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/**"
+      - ".github/scripts/resolve-auto-release.mjs"
+      - ".github/scripts/resolve-auto-release.test.mjs"
+      - ".github/scripts/validate-github-release-inventory.mjs"
+      - ".github/scripts/validate-github-release-inventory.test.mjs"
+      - ".github/scripts/validate-release-confirmation.mjs"
+      - ".github/scripts/validate-release-confirmation.test.mjs"
+      - ".github/scripts/validate-release-source-version.mjs"
+      - ".github/scripts/validate-release-source-version.test.mjs"
+      - ".github/scripts/wait-for-npm-release.mjs"
+      - ".github/scripts/wait-for-npm-release.test.mjs"
   push:
     branches:
       - main
@@ -10,6 +25,8 @@ on:
       - ".github/workflows/**"
       - ".github/scripts/validate-github-release-inventory.mjs"
       - ".github/scripts/validate-github-release-inventory.test.mjs"
+      - ".github/scripts/resolve-auto-release.mjs"
+      - ".github/scripts/resolve-auto-release.test.mjs"
       - ".github/scripts/validate-release-confirmation.mjs"
       - ".github/scripts/validate-release-confirmation.test.mjs"
       - ".github/scripts/validate-release-source-version.mjs"
@@ -61,4 +78,4 @@ jobs:
 
       - name: Validate reusable workflow boundaries
         shell: bash
-        run: node --test .github/scripts/validate-github-release-inventory.test.mjs .github/scripts/validate-release-confirmation.test.mjs .github/scripts/validate-release-source-version.test.mjs .github/scripts/wait-for-npm-release.test.mjs
+        run: node --test .github/scripts/resolve-auto-release.test.mjs .github/scripts/validate-github-release-inventory.test.mjs .github/scripts/validate-release-confirmation.test.mjs .github/scripts/validate-release-source-version.test.mjs .github/scripts/wait-for-npm-release.test.mjs

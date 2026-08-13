@@ -95,6 +95,17 @@ test("requires exact publish confirmation before a real release", () => {
   );
 });
 
+test("uses a reviewed merged version PR as the confirmation for an automatic Draft release", () => {
+  const result = validateReleaseConfirmation({
+    version: "0.1.21",
+    dryRun: "false",
+    confirmation: "",
+    automaticRelease: "true",
+  });
+  assert.equal(result.ok, true);
+  assert.match(result.reason, /four-file version increase/);
+});
+
 test("exports deterministic beta and Docs routing metadata for workflows", () => {
   const output = join(mkdtempSync(join(tmpdir(), "openclaw-release-policy-")), "output");
   main({
