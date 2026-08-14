@@ -1180,20 +1180,22 @@ test("manual release notes also produce docs preview outputs", async () => {
   try {
     const outputPath = join(directory, "github-output.txt");
     const notesPath = join(directory, "release-notes.md");
+    const reviewedNotesPath = join(directory, "v0.1.19.md");
     const sourceRef = runGit(process.cwd(), ["rev-parse", "--short", "d053b0a"]);
-    Object.assign(process.env, {
-      RELEASE_VERSION: "0.1.19",
-      RELEASE_TAG: "v0.1.19",
-      RELEASE_EVIDENCE_REF: "v0.1.19",
-      RELEASE_NOTES_FILE: notesPath,
-      MANUAL_RELEASE_NOTES: `## Changelog
+    writeFileSync(reviewedNotesPath, `## Changelog
 
 ### Improved
 - **系统提示识别优化**：兼容单行压缩内容并降低普通消息误判概率。
 
 <!-- doc-agent-release-notes-json
 {"items":[{"category":"Improved","text_cn":"**系统提示识别优化**：兼容单行压缩内容并降低普通消息误判概率。","text_en":"**System prompt detection**: Supports flattened single-line prompts and reduces false positives on regular messages.","source_refs":["${sourceRef}"]}],"coverage":{"needs_review":false,"required_count":1,"covered_required_count":1,"missing_required_count":0}}
--->`,
+-->`, "utf8");
+    Object.assign(process.env, {
+      RELEASE_VERSION: "0.1.19",
+      RELEASE_TAG: "v0.1.19",
+      RELEASE_EVIDENCE_REF: "v0.1.19",
+      RELEASE_NOTES_FILE: notesPath,
+      MANUAL_RELEASE_NOTES_FILE: reviewedNotesPath,
       GITHUB_OUTPUT: outputPath,
     });
 

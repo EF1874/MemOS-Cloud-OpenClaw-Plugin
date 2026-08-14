@@ -1,6 +1,10 @@
 name: OpenClaw Cloud Plugin — Publish & Release
 
 on:
+  pull_request:
+    types: [closed]
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       version:
@@ -58,15 +62,147 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  classify_auto_release:
+    name: Classify automatic release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      eligible: ${{ steps.classify.outputs.eligible }}
+      reason: ${{ steps.classify.outputs.reason }}
+      previous_version: ${{ steps.classify.outputs.previous_version }}
+      version: ${{ steps.classify.outputs.version }}
+      npm_dist_tag: ${{ steps.classify.outputs.npm_dist_tag }}
+      target_sha: ${{ steps.classify.outputs.target_sha }}
+      release_notes_file: ${{ steps.classify.outputs.release_notes_file }}
+      release_notes_source: ${{ steps.classify.outputs.release_notes_source }}
+    steps:
+      - name: Check merged pull request boundary
+        id: gate
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_MERGED: ${{ github.event.pull_request.merged || false }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref || '' }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          inspect=false
+          reason="manual workflow dispatch"
+          if [ "${EVENT_NAME}" = "pull_request" ]; then
+            reason="closed pull request is not an eligible same-repository main merge"
+            if [ "${PR_MERGED}" = "true" ] && \
+               [ "${PR_BASE_REF}" = "main" ] && \
+               [ "${PR_HEAD_REPO}" = "${REPOSITORY}" ]; then
+              inspect=true
+              reason="same-repository pull request merged into main; inspect committed versions"
+            fi
+          fi
+          {
+            echo "inspect=${inspect}"
+            echo "reason=${reason}"
+          } >> "${GITHUB_OUTPUT}"
+          {
+            echo "### OpenClaw cloud plugin release trigger"
+            echo
+            echo "- Inspect committed version transition: \`${inspect}\`"
+            echo "- Reason: ${reason}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - uses: actions/checkout@v7
+        if: ${{ steps.gate.outputs.inspect == 'true' }}
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        if: ${{ steps.gate.outputs.inspect == 'true' }}
+        with:
+          node-version: 22
+
+      - name: Resolve immutable automatic release
+        if: ${{ steps.gate.outputs.inspect == 'true' }}
+        id: release
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_MERGED: ${{ github.event.pull_request.merged }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node .github/scripts/resolve-auto-release.mjs
+
+      - name: Load optional reviewed Release Notes
+        if: ${{ steps.release.outputs.eligible == 'true' }}
+        id: notes
+        shell: bash
+        env:
+          RELEASE_NOTES_PATH: ${{ steps.release.outputs.release_notes_path }}
+        run: |
+          set -euo pipefail
+          if [ -f "${RELEASE_NOTES_PATH}" ]; then
+            {
+              echo "release_notes_source=checked_in"
+              echo "release_notes_file=${RELEASE_NOTES_PATH}"
+            } >> "${GITHUB_OUTPUT}"
+            echo "Using reviewed Release Notes from ${RELEASE_NOTES_PATH}."
+          else
+            echo "release_notes_source=doc_agent" >> "${GITHUB_OUTPUT}"
+            echo "release_notes_file=" >> "${GITHUB_OUTPUT}"
+            echo "${RELEASE_NOTES_PATH} is absent; 106 Doc Agent will draft from immutable git evidence."
+          fi
+
+      - name: Export automatic release inputs
+        if: ${{ steps.gate.outputs.inspect == 'true' }}
+        id: classify
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          PREVIOUS_VERSION: ${{ steps.release.outputs.previous_version }}
+          NPM_DIST_TAG: ${{ steps.release.outputs.npm_dist_tag }}
+          TARGET_SHA: ${{ steps.release.outputs.target_sha }}
+          ELIGIBLE: ${{ steps.release.outputs.eligible }}
+          RELEASE_REASON: ${{ steps.release.outputs.reason }}
+          RELEASE_NOTES_FILE: ${{ steps.notes.outputs.release_notes_file }}
+          RELEASE_NOTES_SOURCE: ${{ steps.notes.outputs.release_notes_source }}
+        run: |
+          set -euo pipefail
+          {
+            echo "eligible=${ELIGIBLE}"
+            echo "reason=${RELEASE_REASON}"
+            echo "previous_version=${PREVIOUS_VERSION}"
+            echo "version=${VERSION}"
+            echo "npm_dist_tag=${NPM_DIST_TAG}"
+            echo "target_sha=${TARGET_SHA}"
+            echo "release_notes_source=${RELEASE_NOTES_SOURCE}"
+            echo "release_notes_file=${RELEASE_NOTES_FILE}"
+          } >> "${GITHUB_OUTPUT}"
+          {
+            echo
+            echo "- Automatic release: \`${ELIGIBLE}\`"
+            echo "- Version transition: \`${PREVIOUS_VERSION:-unchanged} -> ${VERSION:-unchanged}\`"
+            echo "- Result: ${RELEASE_REASON}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
   publish:
+    needs: classify_auto_release
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        needs.classify_auto_release.outputs.eligible == 'true'
+      }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: write
     steps:
       - name: Validate immutable publish ref
-        if: ${{ inputs.dry_run != true }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run != true }}
         shell: bash
         env:
           RELEASE_GIT_REF: ${{ inputs.git_ref }}
@@ -89,9 +225,13 @@ jobs:
 
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.git_ref || github.ref }}
+          ref: >-
+            ${{
+              github.event_name == 'pull_request' && needs.classify_auto_release.outputs.target_sha ||
+              inputs.git_ref || github.ref
+            }}
           fetch-depth: 0
-          persist-credentials: ${{ inputs.dry_run != true }}
+          persist-credentials: ${{ github.event_name == 'pull_request' || inputs.dry_run != true }}
 
       - uses: actions/setup-node@v7
         with:
@@ -102,13 +242,14 @@ jobs:
         id: release_policy
         shell: bash
         env:
-          RELEASE_VERSION: ${{ inputs.version }}
-          NPM_DIST_TAG: ${{ inputs.tag }}
-          DRY_RUN: ${{ inputs.dry_run }}
-          PUBLISH_CONFIRMATION: ${{ inputs.publish_confirmation }}
-          RELEASE_FAULT_CASE: ${{ inputs.fault_case }}
-          RELEASE_GIT_REF: ${{ inputs.git_ref }}
-          RECOVER_EXISTING_NPM_RELEASE: ${{ inputs.recover_existing_npm_release }}
+          RELEASE_VERSION: ${{ github.event_name == 'pull_request' && needs.classify_auto_release.outputs.version || inputs.version }}
+          NPM_DIST_TAG: ${{ github.event_name == 'pull_request' && needs.classify_auto_release.outputs.npm_dist_tag || inputs.tag }}
+          DRY_RUN: ${{ github.event_name == 'pull_request' && 'false' || inputs.dry_run }}
+          PUBLISH_CONFIRMATION: ${{ github.event_name == 'pull_request' && '' || inputs.publish_confirmation }}
+          RELEASE_FAULT_CASE: ${{ github.event_name == 'pull_request' && 'none' || inputs.fault_case }}
+          RELEASE_GIT_REF: ${{ github.event_name == 'pull_request' && needs.classify_auto_release.outputs.target_sha || inputs.git_ref }}
+          RECOVER_EXISTING_NPM_RELEASE: ${{ github.event_name == 'pull_request' && 'false' || inputs.recover_existing_npm_release }}
+          AUTOMATIC_RELEASE: ${{ github.event_name == 'pull_request' }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
@@ -132,11 +273,11 @@ jobs:
             echo "::error::fault_case is only allowed when dry_run=true."
             exit 1
           fi
-          if [ "${DRY_RUN}" != "true" ] && [ "${GITHUB_REF}" != "refs/heads/${DEFAULT_BRANCH}" ]; then
+          if [ "${DRY_RUN}" != "true" ] && [ "${AUTOMATIC_RELEASE}" != "true" ] && [ "${GITHUB_REF}" != "refs/heads/${DEFAULT_BRANCH}" ]; then
             echo "::error::Real releases must be dispatched from the protected default branch ${DEFAULT_BRANCH}; got ${GITHUB_REF}."
             exit 1
           fi
-          if [ "${DRY_RUN}" != "true" ]; then
+          if [ "${DRY_RUN}" != "true" ] && [ "${AUTOMATIC_RELEASE}" != "true" ]; then
             if [ "${RECOVER_EXISTING_NPM_RELEASE}" != "true" ] && ! [[ "${RELEASE_GIT_REF}" =~ ^[0-9a-fA-F]{40}$ ]]; then
               echo "::error::Normal real releases require git_ref to be the exact 40-character source_commit approved in the dry-run."
               exit 1
@@ -161,7 +302,9 @@ jobs:
         shell: bash
         env:
           PACKAGE_NAME: "@memtensor/memos-cloud-openclaw-plugin"
-          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_VERSION: ${{ github.event_name == 'pull_request' && needs.classify_auto_release.outputs.version || inputs.version }}
+          AUTOMATIC_RELEASE: ${{ github.event_name == 'pull_request' }}
+          AUTOMATIC_RELEASE_TARGET: ${{ needs.classify_auto_release.outputs.target_sha }}
         run: |
           set -euo pipefail
           release_tag="v${RELEASE_VERSION#v}"
@@ -236,6 +379,10 @@ jobs:
           npm_git_head=""
           if npm_version_exists; then
             npm_git_head="$(npm_release_git_head)"
+            if [ "${AUTOMATIC_RELEASE}" = "true" ] && [ "${npm_git_head}" != "${AUTOMATIC_RELEASE_TARGET}" ]; then
+              echo "::error::npm records gitHead ${npm_git_head} for ${PACKAGE_NAME}@${RELEASE_VERSION}, but this automatic release is locked to merged commit ${AUTOMATIC_RELEASE_TARGET}."
+              exit 1
+            fi
             if ! git cat-file -e "${npm_git_head}^{commit}" 2>/dev/null; then
               bash .github/scripts/retry.sh --label "fetch npm gitHead ${npm_git_head}" -- \
                 git fetch --no-tags origin "${npm_git_head}"
@@ -288,7 +435,7 @@ jobs:
       - name: Validate committed release source version
         shell: bash
         env:
-          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_VERSION: ${{ github.event_name == 'pull_request' && needs.classify_auto_release.outputs.version || inputs.version }}
           RELEASE_SOURCE_REF: ${{ steps.release_source.outputs.evidence_ref }}
         run: |
           set -euo pipefail
@@ -311,11 +458,12 @@ jobs:
       - name: Draft GitHub Release notes
         id: release_notes
         env:
-          RELEASE_VERSION: ${{ inputs.version }}
-          RELEASE_TAG: v${{ inputs.version }}
+          RELEASE_VERSION: ${{ github.event_name == 'pull_request' && needs.classify_auto_release.outputs.version || inputs.version }}
+          RELEASE_TAG: v${{ github.event_name == 'pull_request' && needs.classify_auto_release.outputs.version || inputs.version }}
           RELEASE_EVIDENCE_REF: ${{ steps.release_source.outputs.evidence_ref }}
-          MANUAL_RELEASE_NOTES: ${{ inputs.release_notes }}
-          RELEASE_FAULT_CASE: ${{ inputs.fault_case }}
+          MANUAL_RELEASE_NOTES: ${{ github.event_name == 'pull_request' && '' || inputs.release_notes }}
+          MANUAL_RELEASE_NOTES_FILE: ${{ github.event_name == 'pull_request' && needs.classify_auto_release.outputs.release_notes_file || '' }}
+          RELEASE_FAULT_CASE: ${{ github.event_name == 'pull_request' && 'none' || inputs.fault_case }}
           DOC_AGENT_RELEASE_NOTES_DRAFT_URL: ${{ secrets.DOC_AGENT_RELEASE_NOTES_DRAFT_URL }}
           DOC_AGENT_RELEASE_FAILURE_URL: ${{ secrets.DOC_AGENT_RELEASE_FAILURE_URL }}
           DOC_AGENT_RELEASE_NOTES_DRAFT_TOKEN: ${{ secrets.DOC_AGENT_RELEASE_NOTES_DRAFT_TOKEN }}
@@ -326,9 +474,10 @@ jobs:
         shell: bash
         env:
           DRAFT_STEP_OUTCOME: ${{ steps.release_notes.outcome }}
-          DRY_RUN: ${{ inputs.dry_run }}
-          RELEASE_VERSION: ${{ inputs.version }}
-          FAULT_CASE: ${{ inputs.fault_case }}
+          DRY_RUN: ${{ github.event_name == 'pull_request' && 'false' || inputs.dry_run }}
+          RELEASE_VERSION: ${{ github.event_name == 'pull_request' && needs.classify_auto_release.outputs.version || inputs.version }}
+          FAULT_CASE: ${{ github.event_name == 'pull_request' && 'none' || inputs.fault_case }}
+          RELEASE_NOTES_SOURCE: ${{ github.event_name == 'pull_request' && needs.classify_auto_release.outputs.release_notes_source || (inputs.release_notes != '' && 'manual_input' || 'doc_agent') }}
           RELEASE_NOTES_FILE: ${{ steps.release_notes.outputs.release_notes_file }}
           EVIDENCE_FILE: ${{ steps.release_notes.outputs.evidence_file }}
           DRAFT_FILE: ${{ steps.release_notes.outputs.draft_file }}
@@ -432,6 +581,7 @@ jobs:
             echo "- github_release_prerelease: ${GITHUB_RELEASE_PRERELEASE}"
             echo "- docs_sync_expected: ${DOCS_SYNC_EXPECTED}"
             echo "- fault_case: ${FAULT_CASE}"
+            echo "- release_notes_source: ${RELEASE_NOTES_SOURCE}"
             echo "- draft_used: ${DRAFT_USED:-unknown}"
             echo "- previous_tag: ${PREVIOUS_TAG:-n/a}"
             echo "- current_tag: ${CURRENT_TAG:-n/a}"
@@ -476,6 +626,7 @@ jobs:
             echo "- github_release_prerelease: \`${GITHUB_RELEASE_PRERELEASE}\`"
             echo "- docs_sync_expected: \`${DOCS_SYNC_EXPECTED}\`"
             echo "- fault_case: \`${FAULT_CASE}\`"
+            echo "- release_notes_source: \`${RELEASE_NOTES_SOURCE}\`"
             echo "- draft_used: \`${DRAFT_USED:-unknown}\`"
             echo "- previous_tag: \`${PREVIOUS_TAG:-n/a}\`"
             echo "- current_tag: \`${CURRENT_TAG:-n/a}\`"
@@ -504,22 +655,25 @@ jobs:
           if-no-files-found: error
 
       - name: Stop before publish in dry run
-        if: ${{ inputs.dry_run == true }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
         run: |
           echo "::notice::dry_run=true; skipped npm publish, tag, and GitHub Release."
 
       - name: Publish to npm
         id: publish_npm
-        if: ${{ inputs.dry_run != true }}
+        if: ${{ github.event_name == 'pull_request' || inputs.dry_run != true }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           GH_TOKEN: ${{ github.token }}
           PACKAGE_NAME: "@memtensor/memos-cloud-openclaw-plugin"
-          RELEASE_VERSION: ${{ inputs.version }}
-          RELEASE_TAG: v${{ inputs.version }}
-          NPM_DIST_TAG: ${{ inputs.tag }}
+          RELEASE_VERSION: ${{ github.event_name == 'pull_request' && needs.classify_auto_release.outputs.version || inputs.version }}
+          RELEASE_TAG: v${{ github.event_name == 'pull_request' && needs.classify_auto_release.outputs.version || inputs.version }}
+          NPM_DIST_TAG: ${{ github.event_name == 'pull_request' && needs.classify_auto_release.outputs.npm_dist_tag || inputs.tag }}
+          CREATE_DRAFT_RELEASE: ${{ github.event_name == 'pull_request' || inputs.recover_existing_npm_release == true }}
           EXPECTED_RELEASE_PRERELEASE: ${{ steps.release_policy.outputs.github_release_prerelease }}
-          RECOVER_EXISTING_NPM_RELEASE: ${{ inputs.recover_existing_npm_release }}
+          RECOVER_EXISTING_NPM_RELEASE: ${{ github.event_name == 'pull_request' && 'false' || inputs.recover_existing_npm_release }}
+          AUTOMATIC_RELEASE: ${{ github.event_name == 'pull_request' }}
+          AUTOMATIC_RELEASE_TARGET: ${{ needs.classify_auto_release.outputs.target_sha }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           DOC_AGENT_RELEASE_FAILURE_URL: ${{ secrets.DOC_AGENT_RELEASE_FAILURE_URL }}
           DOC_AGENT_RELEASE_NOTES_DRAFT_TOKEN: ${{ secrets.DOC_AGENT_RELEASE_NOTES_DRAFT_TOKEN }}
@@ -696,11 +850,12 @@ jobs:
             local expected_target="${1:-}"
             RELEASE_INVENTORY_FILE="${release_inventory_file}" \
               RELEASE_TAG="${release_tag}" \
-              EXPECTED_RELEASE_DRAFT=false \
+              EXPECTED_RELEASE_DRAFT="${CREATE_DRAFT_RELEASE}" \
               EXPECTED_RELEASE_PRERELEASE="${expected_release_prerelease}" \
               EXPECTED_RELEASE_TARGET="${expected_target}" \
               REQUIRED_DOC_AGENT_SOURCE_ID=openclaw-cloud-plugin \
               REQUIRE_EXISTING_RELEASE=false \
+              ALLOW_PUBLISHED_FOR_DRAFT_RERUN="${CREATE_DRAFT_RELEASE}" \
               node .github/scripts/validate-github-release-inventory.mjs
           }
 
@@ -729,6 +884,10 @@ jobs:
 
           if npm_version_exists; then
             release_commit_sha="$(npm_release_git_head)"
+            if [ "${AUTOMATIC_RELEASE}" = "true" ] && [ "${release_commit_sha}" != "${AUTOMATIC_RELEASE_TARGET}" ]; then
+              echo "::error::npm records gitHead ${release_commit_sha} for ${PACKAGE_NAME}@${RELEASE_VERSION}, but this automatic release is locked to merged commit ${AUTOMATIC_RELEASE_TARGET}."
+              exit 1
+            fi
             ensure_commit_available "${release_commit_sha}"
             validate_release_commit_versions "${release_commit_sha}"
 
@@ -738,8 +897,8 @@ jobs:
             fi
             if [ "${tag_exists}" = "true" ] && [ "${release_exists}" = "true" ]; then
               echo "${PACKAGE_NAME}@${RELEASE_VERSION}, ${release_tag}, and its validated GitHub Release already exist; treating this as an idempotent rerun."
-            elif [ "${RECOVER_EXISTING_NPM_RELEASE}" = "true" ]; then
-              echo "Recovery mode enabled; npm version exists, so publish is skipped and missing GitHub metadata will target npm gitHead ${release_commit_sha}."
+            elif [ "${RECOVER_EXISTING_NPM_RELEASE}" = "true" ] || [ "${AUTOMATIC_RELEASE}" = "true" ]; then
+              echo "Verified resume mode enabled; npm version exists, so publish is skipped and missing GitHub metadata will target npm gitHead ${release_commit_sha}."
             else
               missing=()
               if [ "${tag_exists}" != "true" ]; then
@@ -769,13 +928,23 @@ jobs:
               echo "::error::Could not resolve the protected default branch ${DEFAULT_BRANCH}."
               exit 1
             fi
-            if [ "${remote_default_sha}" != "${source_commit_sha}" ]; then
+            if [ "${AUTOMATIC_RELEASE}" = "true" ]; then
+              if [ "${source_commit_sha}" != "${AUTOMATIC_RELEASE_TARGET}" ]; then
+                echo "::error::Checked-out source ${source_commit_sha} does not match the merged version PR target ${AUTOMATIC_RELEASE_TARGET}."
+                exit 1
+              fi
+              git fetch --no-tags origin "${DEFAULT_BRANCH}"
+              if ! git merge-base --is-ancestor "${source_commit_sha}" "origin/${DEFAULT_BRANCH}"; then
+                echo "::error::Merged release target ${source_commit_sha} is no longer an ancestor of ${DEFAULT_BRANCH}."
+                exit 1
+              fi
+            elif [ "${remote_default_sha}" != "${source_commit_sha}" ]; then
               echo "::error::The checked-out release source ${source_commit_sha} is no longer the head of ${DEFAULT_BRANCH} (${remote_default_sha}). Rerun the workflow from the latest main commit."
               exit 1
             fi
             release_commit_sha="${source_commit_sha}"
             validate_release_commit_versions "${release_commit_sha}"
-            echo "Publishing the already-reviewed ${DEFAULT_BRANCH} commit ${release_commit_sha}; no source files or release branch will be created."
+            echo "Publishing the already-reviewed ${DEFAULT_BRANCH} commit ${release_commit_sha}; no source files or version PR will be created by Actions."
 
             attempt_dir="${RUNNER_TEMP}/openclaw-cloud-plugin-npm-publish-attempts"
             mkdir -p "${attempt_dir}"
@@ -827,11 +996,12 @@ jobs:
           echo "release_commit_sha=${release_commit_sha}" >> "${GITHUB_OUTPUT}"
 
       - name: Create release tag and GitHub Release
-        if: ${{ inputs.dry_run != true }}
+        if: ${{ github.event_name == 'pull_request' || inputs.dry_run != true }}
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_VERSION: ${{ inputs.version }}
-          NPM_DIST_TAG: ${{ inputs.tag }}
+          RELEASE_VERSION: ${{ github.event_name == 'pull_request' && needs.classify_auto_release.outputs.version || inputs.version }}
+          NPM_DIST_TAG: ${{ github.event_name == 'pull_request' && needs.classify_auto_release.outputs.npm_dist_tag || inputs.tag }}
+          CREATE_DRAFT_RELEASE: ${{ github.event_name == 'pull_request' || inputs.recover_existing_npm_release == true }}
           EXPECTED_RELEASE_PRERELEASE: ${{ steps.release_policy.outputs.github_release_prerelease }}
           RELEASE_NOTES_FILE: ${{ steps.release_notes.outputs.release_notes_file }}
           RELEASE_COMMIT_SHA: ${{ steps.publish_npm.outputs.release_commit_sha }}
@@ -919,11 +1089,12 @@ jobs:
             local require_existing="$1"
             RELEASE_INVENTORY_FILE="${release_inventory_file}" \
               RELEASE_TAG="${release_tag}" \
-              EXPECTED_RELEASE_DRAFT=false \
+              EXPECTED_RELEASE_DRAFT="${CREATE_DRAFT_RELEASE}" \
               EXPECTED_RELEASE_PRERELEASE="${expected_release_prerelease}" \
               EXPECTED_RELEASE_TARGET="${RELEASE_COMMIT_SHA}" \
               REQUIRED_DOC_AGENT_SOURCE_ID=openclaw-cloud-plugin \
               REQUIRE_EXISTING_RELEASE="${require_existing}" \
+              ALLOW_PUBLISHED_FOR_DRAFT_RERUN="${CREATE_DRAFT_RELEASE}" \
               node .github/scripts/validate-github-release-inventory.mjs
           }
           create_release_if_missing() {
@@ -934,6 +1105,10 @@ jobs:
             if [ "${expected_release_prerelease}" = "true" ]; then
               release_flags+=(--prerelease)
               echo "Marking GitHub Release ${release_tag} as prerelease because version=${RELEASE_VERSION}, npm_dist_tag=${NPM_DIST_TAG}."
+            fi
+            if [ "${CREATE_DRAFT_RELEASE}" = "true" ]; then
+              release_flags+=(--draft)
+              echo "Creating GitHub Release ${release_tag} as a Draft for human review. Publishing the Draft is the only Docs webhook boundary."
             fi
 
             for attempt in 1 2 3; do
@@ -1047,3 +1222,14 @@ jobs:
           fi
 
           create_release_if_missing
+
+          if [ "${CREATE_DRAFT_RELEASE}" = "true" ]; then
+            {
+              echo "### Draft Release ready for review"
+              echo
+              echo "- npm ${RELEASE_VERSION} and tag ${release_tag} were verified before the Draft was created."
+              echo "- Review the Draft Release body and Docs preview."
+              echo "- Stable release: click Publish only after review; that release.published event triggers 106."
+              echo "- Prerelease: publishing remains a GitHub Prerelease and 106 must skip formal Docs sync."
+            } >> "${GITHUB_STEP_SUMMARY}"
+          fi

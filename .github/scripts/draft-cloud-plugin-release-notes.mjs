@@ -1972,7 +1972,30 @@ export async function main() {
   const docsPreviewMarkdownPath = join(tmpdir(), `openclaw-cloud-plugin-${targetVersion}-docs-preview.md`);
   const qualityReportPath = join(tmpdir(), `openclaw-cloud-plugin-${targetVersion}-quality-report.json`);
 
-  const suppliedManualNotes = String(process.env.MANUAL_RELEASE_NOTES || "").trim();
+  const suppliedManualNotesFile = String(
+    process.env.MANUAL_RELEASE_NOTES_FILE || "",
+  ).trim();
+  const suppliedManualNotesInput = String(
+    process.env.MANUAL_RELEASE_NOTES || "",
+  ).trim();
+  if (suppliedManualNotesFile && suppliedManualNotesInput) {
+    fail(
+      "Provide reviewed Release Notes through either MANUAL_RELEASE_NOTES_FILE or MANUAL_RELEASE_NOTES, not both.",
+    );
+  }
+  let suppliedManualNotes = suppliedManualNotesInput;
+  if (suppliedManualNotesFile) {
+    try {
+      suppliedManualNotes = readFileSync(suppliedManualNotesFile, "utf8").trim();
+    } catch (error) {
+      fail(
+        `Cannot read reviewed Release Notes file ${suppliedManualNotesFile}: ${cleanError(error?.message || error)}`,
+      );
+    }
+    if (!suppliedManualNotes) {
+      fail(`Reviewed Release Notes file ${suppliedManualNotesFile} is empty.`);
+    }
+  }
   const manualNotes =
     faultCase === "manual_notes_missing_payload"
       ? "## Changelog\n\n### Added\n- Intentionally missing the hidden evidence payload."

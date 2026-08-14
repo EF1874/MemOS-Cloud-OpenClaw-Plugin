@@ -48,12 +48,17 @@ export function validateReleaseChannel({ version, npmDistTag }) {
     github_release_prerelease: isPrerelease,
     docs_sync_expected: !isPrerelease,
     reason: isPrerelease
-      ? `prerelease version will publish on npm '${tag}', create a GitHub Prerelease, and skip formal Docs sync.`
-      : "stable version will publish on npm 'latest', create a published GitHub Release, and enter formal Docs sync.",
+      ? `prerelease version will publish on npm '${tag}', use a GitHub Prerelease, and skip formal Docs sync.`
+      : "stable version will publish on npm 'latest'; formal Docs sync starts only after its GitHub Release is published.",
   };
 }
 
-export function validateReleaseConfirmation({ version, dryRun, confirmation }) {
+export function validateReleaseConfirmation({
+  version,
+  dryRun,
+  confirmation,
+  automaticRelease = false,
+}) {
   const isDryRun = String(dryRun ?? "true").trim().toLowerCase() === "true";
   const expected = expectedReleaseConfirmation(version);
 
@@ -62,6 +67,15 @@ export function validateReleaseConfirmation({ version, dryRun, confirmation }) {
       ok: true,
       expected,
       reason: "dry_run=true; publish confirmation is not required.",
+    };
+  }
+
+  if (String(automaticRelease).trim().toLowerCase() === "true") {
+    return {
+      ok: true,
+      expected,
+      reason:
+        "trusted four-file version increase on merged main accepted; the reviewed version PR is the publish authorization and the GitHub Release will remain Draft for human review.",
     };
   }
 
@@ -77,7 +91,7 @@ export function validateReleaseConfirmation({ version, dryRun, confirmation }) {
     ok: false,
     expected,
     reason:
-      "dry_run=false would publish to npm and create a published GitHub Release; " +
+      "dry_run=false would perform release side effects; " +
       `publish_confirmation must exactly equal '${expected}'.`,
   };
 }
@@ -95,6 +109,7 @@ export function main(env = process.env) {
     version: env.RELEASE_VERSION,
     dryRun: env.DRY_RUN,
     confirmation: env.PUBLISH_CONFIRMATION,
+    automaticRelease: env.AUTOMATIC_RELEASE,
   });
 
   if (!result.ok) {
