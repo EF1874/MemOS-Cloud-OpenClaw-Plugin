@@ -39,6 +39,29 @@ export const MEMOS_SETTINGS_NAMESPACE = 'memos-cloud' as SettingsNamespace
 
 const isSubagent = (session: Session): boolean => session.header.origin === 'subagent'
 
+/** The session-projection service a runtime may expose; older runtimes have none. */
+interface SessionProjectionsLike {
+  stateOf?: (session: Session, key: string) => unknown
+}
+
+/**
+ * The current preset lives in the `agentPreset` session projection; the header
+ * carries only its initial value. An absent service, an unregistered projection,
+ * or a failed lookup each fall back to the header, while a projection reporting
+ * no preset stays absent instead of reviving a stale header value.
+ */
+const agentPresetOf = (ctx: Context, session: Session): string | undefined => {
+  try {
+    const projections = (ctx as Context & { sessionProjections?: SessionProjectionsLike })
+      .sessionProjections
+    const current = projections?.stateOf?.(session, 'agentPreset')
+    if (current === undefined) return session.header.agentPreset
+    return typeof current === 'string' ? current : undefined
+  } catch {
+    return session.header.agentPreset
+  }
+}
+
 const errorDescription = (error: unknown, configError: boolean): string => {
   if (configError && error instanceof Error) return error.message
   if (error instanceof Error && error.name === 'MemosClientError') return error.message
@@ -130,12 +153,11 @@ export const installMemosLifecycle = (
 
     try {
       const client = clientFactory(config, lifecycle.signal)
+      const agentPreset = agentPresetOf(ctx, payload.agent.session)
       const request = buildSearchPayload({
         config,
         sessionId: payload.agent.session.id,
-        ...(payload.agent.session.header.agentPreset === undefined
-          ? {}
-          : { agentPreset: payload.agent.session.header.agentPreset }),
+        ...(agentPreset === undefined ? {} : { agentPreset }),
         query,
         ...(dependencies.platform === undefined ? {} : { platform: dependencies.platform }),
       })
@@ -185,12 +207,13 @@ export const installMemosLifecycle = (
 
     try {
       const client = clientFactory(config, lifecycle.signal)
+      const agentPreset = agentPresetOf(ctx, session)
       const request = buildAddPayload({
         config,
         sessionId: session.id,
         messages,
         origin: isSubagent(session) ? 'subagent' : 'top-level',
-        ...(session.header.agentPreset === undefined ? {} : { agentPreset: session.header.agentPreset }),
+        ...(agentPreset === undefined ? {} : { agentPreset }),
         ...(dependencies.platform === undefined ? {} : { platform: dependencies.platform }),
       })
       enqueueAdd(session, request, client)

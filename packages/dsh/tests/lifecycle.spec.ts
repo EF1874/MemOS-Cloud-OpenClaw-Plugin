@@ -48,6 +48,11 @@ const createAgent = (session: Session): Agent => ({
   options: {},
 } as unknown as Agent)
 
+/** A session-projection service stub, shaped the way a current DSH runtime exposes it. */
+const presetProjection = (value: unknown): { stateOf: (session: Session, key: string) => unknown } => ({
+  stateOf: (_session: Session, key: string) => (key === 'agentPreset' ? value : undefined),
+})
+
 interface Harness {
   ctx: Context
   client: MemosClientLike
@@ -147,7 +152,7 @@ describe('pre-step lifecycle', () => {
     expect(result.kind).toBe('enter')
     if (result.kind !== 'enter') throw new Error('expected enter')
     expect(result.messages).toHaveLength(2)
-    expect(result.messages[0]?.source).toEqual({ kind: 'plugin', plugin: 'memos-cloud', form: 'recall' })
+    expect(result.messages[0]?.source).toEqual({ kind: 'plugin:memos-cloud', form: 'recall' })
     expect(result.messages[1]).toBe(direct)
   })
 
@@ -182,6 +187,34 @@ describe('pre-step lifecycle', () => {
 
     expect(harness.search).toHaveBeenCalledWith(expect.objectContaining({
       filter: { user: { agent_id: 'code' } },
+    }), expect.any(AbortSignal))
+  })
+
+  it('prefers the agentPreset projection over the initial header value', async () => {
+    const harness = setup({ multiAgentMode: true, agentId: 'headless-fallback' })
+    Object.assign(harness.ctx, { sessionProjections: presetProjection('ptc') })
+    await dispatchPreStep(
+      harness,
+      createSession('session-1', { agentPreset: 'code' }),
+      [userMessage('question')],
+    )
+
+    expect(harness.search).toHaveBeenCalledWith(expect.objectContaining({
+      filter: { user: { agent_id: 'ptc' } },
+    }), expect.any(AbortSignal))
+  })
+
+  it('does not revive the header preset when the projection reports none', async () => {
+    const harness = setup({ multiAgentMode: true, agentId: 'headless-fallback' })
+    Object.assign(harness.ctx, { sessionProjections: presetProjection(null) })
+    await dispatchPreStep(
+      harness,
+      createSession('session-1', { agentPreset: 'code' }),
+      [userMessage('question')],
+    )
+
+    expect(harness.search).toHaveBeenCalledWith(expect.objectContaining({
+      filter: { user: { agent_id: 'headless-fallback' } },
     }), expect.any(AbortSignal))
   })
 
@@ -310,6 +343,22 @@ describe('turn-end lifecycle', () => {
     }), expect.any(AbortSignal))
 
     finishAdd?.()
+    await harness.controller.drain()
+  })
+
+  it('tags the write with the projected preset rather than the initial header value', async () => {
+    const add = vi.fn(async () => ({ success: true }))
+    const harness = setup({ multiAgentMode: true, agentId: 'headless-fallback' }, { add })
+    Object.assign(harness.ctx, { sessionProjections: presetProjection('ptc') })
+    const session = createSession('session-1', { agentPreset: 'coding' })
+    const end = appendTurn(session, 1, 'remember this')
+
+    harness.ctx.emit('session/event', session, end)
+    await vi.waitFor(() => expect(add).toHaveBeenCalledOnce())
+    expect(add).toHaveBeenCalledWith(expect.objectContaining({
+      agent_id: 'ptc',
+      info: expect.objectContaining({ dsh_agent_preset: 'ptc' }),
+    }), expect.any(AbortSignal))
     await harness.controller.drain()
   })
 
