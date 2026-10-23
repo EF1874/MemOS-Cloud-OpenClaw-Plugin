@@ -170,7 +170,7 @@ memos-cloud:
 
 共享 core 不包含 DSH 生命周期代码。本插件单独负责 Cordis 凭据/设置服务、`agent/pre-step` 与 `turn/end` 订阅、Session 到 Conversation 的映射、DSH 消息/工具转换、基于 preset 的 agent 归因、消息捕获策略、上下文插入和串行写入队列。共享 MemOS API 层不代表 DSH 自动拥有 OpenClaw 的配置页面、按 Agent 覆盖配置或模型二次召回过滤。
 
-启用 `multiAgentMode` 后，search 与 add 都使用 `session.header.agentPreset` 作为 `agent_id`。headless 等 DSH 部署可能创建没有 preset 的 Session；此时使用显式配置的 `agentId`，没有回退值则不传 `agent_id`。加入父 Agent preset 的 subagent 与父 Agent 共享 preset 级记忆分区，但仍使用各自独立的 `conversation_id`。
+启用 `multiAgentMode` 后，search 与 add 都使用会话 `agentPreset` 投影中的当前预设作为 `agent_id`，切换预设时也会切换记忆分区。投影不可用的运行时回退到 `session.header.agentPreset`，其中保存的是初始预设；明确清空预设时，不再使用旧的头部值。headless 等 DSH 部署可能创建没有 preset 的 Session；此时使用显式配置的 `agentId`，没有回退值则不传 `agent_id`。加入父 Agent preset 的 subagent 与父 Agent 共享 preset 级记忆分区，但仍使用各自独立的 `conversation_id`。
 
 由于 preset 会按 Session 选择 `agent_id`，启用 `multiAgentMode` 时不要再在 `filter` 中设置固定 `agent_id`；配置校验会拒绝这种冲突组合。
 

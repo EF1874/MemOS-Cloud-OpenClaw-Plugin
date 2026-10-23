@@ -39,6 +39,25 @@ export const MEMOS_SETTINGS_NAMESPACE = 'memos-cloud' as SettingsNamespace
 
 const isSubagent = (session: Session): boolean => session.header.origin === 'subagent'
 
+interface SessionProjectionsLike {
+  stateOf?: (session: Session, key: string) => unknown
+}
+
+// The header contains the initial preset. A session projection tracks changes
+// made after creation, including an explicitly cleared preset (null).
+const agentPresetOf = (ctx: Context, session: Session): string | undefined => {
+  try {
+    // This optional service is not declared in inject. Property access would
+    // throw in a mounted Cordis plugin, so query it through get().
+    const projections = ctx.get('sessionProjections') as SessionProjectionsLike | undefined
+    const current = projections?.stateOf?.(session, 'agentPreset')
+    if (current !== undefined) return typeof current === 'string' ? current : undefined
+  } catch {
+    // Older hosts may not expose the projection or may not have registered it.
+  }
+  return session.header.agentPreset
+}
+
 const errorDescription = (error: unknown, configError: boolean): string => {
   if (configError && error instanceof Error) return error.message
   if (error instanceof Error && error.name === 'MemosClientError') return error.message
@@ -130,12 +149,11 @@ export const installMemosLifecycle = (
 
     try {
       const client = clientFactory(config, lifecycle.signal)
+      const agentPreset = agentPresetOf(ctx, payload.agent.session)
       const request = buildSearchPayload({
         config,
         sessionId: payload.agent.session.id,
-        ...(payload.agent.session.header.agentPreset === undefined
-          ? {}
-          : { agentPreset: payload.agent.session.header.agentPreset }),
+        ...(agentPreset === undefined ? {} : { agentPreset }),
         query,
         ...(dependencies.platform === undefined ? {} : { platform: dependencies.platform }),
       })
@@ -185,12 +203,13 @@ export const installMemosLifecycle = (
 
     try {
       const client = clientFactory(config, lifecycle.signal)
+      const agentPreset = agentPresetOf(ctx, session)
       const request = buildAddPayload({
         config,
         sessionId: session.id,
         messages,
         origin: isSubagent(session) ? 'subagent' : 'top-level',
-        ...(session.header.agentPreset === undefined ? {} : { agentPreset: session.header.agentPreset }),
+        ...(agentPreset === undefined ? {} : { agentPreset }),
         ...(dependencies.platform === undefined ? {} : { platform: dependencies.platform }),
       })
       enqueueAdd(session, request, client)
