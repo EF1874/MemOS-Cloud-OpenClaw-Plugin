@@ -1,4 +1,4 @@
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, ToolResultMessage } from '@deepseek-ai/dsh-llm'
 import { isAppendSurfaceEvent, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { truncateUnicode } from '@memtensor/memos-cloud-plugin-core'
 import type {
@@ -67,6 +67,27 @@ const toolResultContent = (
   return text.length === 0 ? undefined : [{ type: 'text', text }]
 }
 
+/**
+ * Session format v4 carries a tool result's call identity on the message itself
+ * and keeps plain content blocks; the format the pinned typings describe wrapped
+ * both in a `tool-result` block, which v4 refuses. Read whichever shape the
+ * event carries so one build serves both runtimes.
+ */
+interface ToolResultView {
+  readonly content: readonly ContentBlock[]
+  readonly toolCallId?: string
+  readonly source: { readonly callId?: string }
+}
+
+const readToolResult = (
+  message: ToolResultMessage,
+): { callId: string | undefined; content: readonly ContentBlock[] } => {
+  const view = message as unknown as ToolResultView
+  const wrapped = view.content.find((value) => value.type === 'tool-result')
+  if (wrapped !== undefined) return { callId: wrapped.toolCallId, content: wrapped.content }
+  return { callId: view.toolCallId ?? view.source.callId, content: view.content }
+}
+
 const startIndexFor = (
   events: readonly SessionEvent[],
   endIndex: number,
@@ -96,8 +117,8 @@ export const captureTurn = (
   if (options.includeToolMemory) {
     for (const event of turnEvents) {
       if (event.type !== 'tool/result' || event.data.turn !== turn || !isAppendSurfaceEvent(event)) continue
-      const block = event.data.message.content.find((value) => value.type === 'tool-result')
-      if (block !== undefined) resultCallIds.add(block.toolCallId)
+      const { callId } = readToolResult(event.data.message)
+      if (callId !== undefined) resultCallIds.add(callId)
     }
   }
 
@@ -145,19 +166,19 @@ export const captureTurn = (
       continue
     }
     if (event.type !== 'tool/result' || event.data.turn !== turn || !options.includeToolMemory) continue
-    const block = event.data.message.content.find((value) => value.type === 'tool-result')
+    const { callId, content: resultBlocks } = readToolResult(event.data.message)
     if (
-      block === undefined
-      || !emittedCallIds.has(block.toolCallId)
-      || emittedResultIds.has(block.toolCallId)
+      callId === undefined
+      || !emittedCallIds.has(callId)
+      || emittedResultIds.has(callId)
     ) continue
-    const content = toolResultContent(block.content, options.maxMessageChars)
+    const content = toolResultContent(resultBlocks, options.maxMessageChars)
     if (content === undefined) continue
-    emittedResultIds.add(block.toolCallId)
+    emittedResultIds.add(callId)
     messages.push({
       id: event.data.message.id,
       role: 'tool',
-      tool_call_id: block.toolCallId,
+      tool_call_id: callId,
       content,
       chat_time: new Date(event.time).toISOString(),
     })

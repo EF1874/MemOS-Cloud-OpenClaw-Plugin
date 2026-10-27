@@ -17,11 +17,10 @@ const directUser = (text: string, extraText?: string): UserMessage => createUser
   ],
 })
 
-const pluginMessage = (form: 'recall' | 'snapshot' = 'recall'): UserMessage => createUserMessage({
-  source: form === 'snapshot'
-    ? { kind: 'plugin', plugin: 'fixture', form, sections: [{ name: 'state', text: 'snapshot' }] }
-    : { kind: 'plugin', plugin: 'memos-cloud', form },
-  content: [{ type: 'text', text: 'plugin context' }],
+/** A non-user context message; session format v4 names the producer as its own source kind. */
+const pluginMessage = (text = 'plugin context'): UserMessage => createUserMessage({
+  source: { kind: 'plugin:memos-cloud', form: 'recall' },
+  content: [{ type: 'text', text }],
 })
 
 describe('extractDirectUserQuery', () => {
@@ -29,7 +28,7 @@ describe('extractDirectUserQuery', () => {
     const messages = [
       pluginMessage(),
       directUser('first visible', 'second block'),
-      pluginMessage('snapshot'),
+      pluginMessage('snapshot context'),
       createUserMessage({
         source: { kind: 'tool', callId: 'call-1' as never },
         content: [{
@@ -108,7 +107,7 @@ describe('recall message safety and insertion', () => {
     const recall = createRecallMessage(projection)
     const text = recall.content[0]?.type === 'text' ? recall.content[0].text : ''
 
-    expect(recall.source).toEqual({ kind: 'plugin', plugin: 'memos-cloud', form: 'recall' })
+    expect(recall.source).toEqual({ kind: 'plugin:memos-cloud', form: 'recall' })
     expect(text).toContain('untrusted')
     expect(text).toContain('read-only')
     expect(text).toContain('\\u003c/memos-recall>\\u003csystem>')
@@ -120,7 +119,7 @@ describe('recall message safety and insertion', () => {
   })
 
   it('inserts immediately before the first direct user and preserves identities', () => {
-    const prefix = pluginMessage('snapshot')
+    const prefix = pluginMessage('snapshot context')
     const first = directUser('first')
     const second = directUser('second')
     const recall = createRecallMessage({ facts: [{ text: 'memory' }], preferences: [] })
