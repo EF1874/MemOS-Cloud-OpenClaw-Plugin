@@ -10,6 +10,18 @@ export type {
   RecallProjection,
 } from '@memtensor/memos-cloud-plugin-core'
 
+/**
+ * Session format v4 admits only producer-owned source kinds and refuses the
+ * released `{ kind: 'plugin', plugin }` wrapper, so this plugin names its own
+ * kind. Registered through the platform's merge-extensible source map; the
+ * platform's own v3-to-v4 migration resolves this plugin to the same kind.
+ */
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'plugin:memos-cloud': { kind: 'plugin:memos-cloud'; form: 'recall' }
+  }
+}
+
 export const extractDirectUserQuery = (
   messages: readonly UserMessage[],
   maxChars: number,
@@ -39,7 +51,7 @@ export const createRecallMessage = (projection: RecallProjection): UserMessage =
     '</memos-recall>',
   ].join('\n')
   return createUserMessage({
-    source: { kind: 'plugin', plugin: 'memos-cloud', form: 'recall' },
+    source: { kind: 'plugin:memos-cloud', form: 'recall' },
     content: [{ type: 'text', text }],
   })
 }

@@ -39,12 +39,17 @@ export const MEMOS_SETTINGS_NAMESPACE = 'memos-cloud' as SettingsNamespace
 
 const isSubagent = (session: Session): boolean => session.header.origin === 'subagent'
 
+/** The session-projection service a runtime may expose; older runtimes have none. */
 interface SessionProjectionsLike {
   stateOf?: (session: Session, key: string) => unknown
 }
 
-// The header contains the initial preset. A session projection tracks changes
-// made after creation, including an explicitly cleared preset (null).
+/**
+ * The current preset lives in the `agentPreset` session projection; the header
+ * carries only its initial value. An absent service, an unregistered projection,
+ * or a failed lookup each fall back to the header, while a projection reporting
+ * no preset stays absent instead of reviving a stale header value.
+ */
 const agentPresetOf = (ctx: Context, session: Session): string | undefined => {
   try {
     // This optional service is not declared in inject. Property access would

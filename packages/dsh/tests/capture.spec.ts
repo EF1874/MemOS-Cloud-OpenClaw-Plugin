@@ -2,6 +2,7 @@ import {
   createAssistantMessage,
   createToolResultMessage,
   createUserMessage,
+  type ToolResultMessage,
 } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { describe, expect, it } from 'vitest'
@@ -22,7 +23,7 @@ const directUser = createUserMessage({
   ],
 })
 const recall = createUserMessage({
-  source: { kind: 'plugin', plugin: 'memos-cloud', form: 'recall' },
+  source: { kind: 'plugin:memos-cloud', form: 'recall' },
   content: [{ type: 'text', text: 'recalled context' }],
 })
 const firstAssistant = createAssistantMessage({
@@ -46,6 +47,44 @@ const toolResult = createToolResultMessage({
   content: [{ type: 'text', text: 'tool output' }],
   isError: false,
 })
+
+/**
+ * Session format v4 carries the call identity on the result message and keeps
+ * plain content blocks; `createToolResultMessage` in the pinned typings still
+ * builds the released `tool-result` wrapper, so the current shape is spelled out.
+ */
+const currentToolResult = {
+  id: 'message-current-result' as never,
+  role: 'user' as const,
+  source: { kind: 'tool' as const, callId: 'call-2' as never },
+  toolCallId: 'call-2' as never,
+  content: [{ type: 'text' as const, text: 'current tool output' }],
+} as unknown as ToolResultMessage
+
+const currentAssistant = createAssistantMessage({
+  source: { provider: 'fixture', model: 'model' },
+  content: [{ type: 'tool-call', id: 'call-2' as never, name: 'write', arguments: '{}' }],
+})
+
+const currentEvents: SessionEvent[] = [
+  { type: 'turn/start', seq: seq(0), time: 1000, data: { turn: 1 } },
+  { type: 'user/message', seq: seq(1), time: 1100, data: directUser, surfaceOp: 'append' },
+  {
+    type: 'assistant/message',
+    seq: seq(2),
+    time: 1200,
+    data: { turn: 1, step: 1, message: currentAssistant },
+    surfaceOp: 'append',
+  },
+  {
+    type: 'tool/result',
+    seq: seq(3),
+    time: 1300,
+    data: { turn: 1, step: 1, message: currentToolResult },
+    surfaceOp: 'append',
+  },
+  { type: 'turn/end', seq: seq(4), time: 1400, data: { turn: 1, reason: { kind: 'completed' } } },
+]
 
 const events: SessionEvent[] = [
   { type: 'turn/start', seq: seq(0), time: 1000, data: { turn: 1 } },
@@ -165,6 +204,38 @@ describe('captureTurn', () => {
         role: 'tool',
         tool_call_id: 'call-1',
       }),
+    ])
+  })
+
+  it('captures the current format, which carries the call id on the result message', () => {
+    expect(captureTurn(currentEvents, 4, {
+      includeAssistant: true,
+      includeToolMemory: true,
+      maxMessageChars: 1000,
+    })).toEqual([
+      {
+        id: directUser.id,
+        role: 'user',
+        content: 'current question',
+        chat_time: new Date(1100).toISOString(),
+      },
+      {
+        id: currentAssistant.id,
+        role: 'assistant',
+        tool_calls: [{
+          id: 'call-2',
+          type: 'function',
+          function: { name: 'write', arguments: '{}' },
+        }],
+        chat_time: new Date(1200).toISOString(),
+      },
+      {
+        id: currentToolResult.id,
+        role: 'tool',
+        tool_call_id: 'call-2',
+        content: [{ type: 'text', text: 'current tool output' }],
+        chat_time: new Date(1300).toISOString(),
+      },
     ])
   })
 
