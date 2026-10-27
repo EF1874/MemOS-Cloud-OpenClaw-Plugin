@@ -7,7 +7,7 @@
 - **添加记忆**：在每轮对话结束后把消息写回 MemOS Cloud
 
 ## 功能
-- **Recall**：`before_prompt_build`（旧版 OpenClaw 回退到 `before_agent_start`）→ `/search/memory`
+- **Recall**：`before_prompt_build`（已识别的旧版 OpenClaw、Moltbot 和 ClawDBot 使用 `before_agent_start`）→ `/search/memory`
 - **Add**：`agent_end` → `/add/message`
 - **Config UI**：启动 gateway 时同时启动本地插件配置页面，用来编辑 `plugins.entries.memos-cloud-openclaw-plugin.config`
 - 使用 **Token** 认证（`Authorization: Token <MEMOS_API_KEY>`）
@@ -152,7 +152,8 @@ MEMOS_API_KEY=YOUR_TOKEN
 ```
 
 ## 工作原理
-### 1) 召回（新版 OpenClaw 使用 `before_prompt_build`；旧版回退到 `before_agent_start`）
+### 1) 召回（`before_prompt_build`；旧宿主使用 `before_agent_start`）
+- 优先读取实际宿主提供的 `api.runtime.version`：从 `2026.5.7` 起使用 `before_prompt_build`，此前的版本使用 `before_agent_start`，包括官方旧版 Moltbot、ClawDBot，沿用插件原有的切换分界。API 无有效版本时，才通过宿主包信息和启动入口补充判断；已识别的旧宿主使用旧钩子，版本未知的 OpenClaw 默认使用新钩子。早期 OpenClaw 若完全无法识别版本，仍存在兼容边界。始终只注册一个召回钩子。
 - 组装 `/search/memory` 请求
   - `user_id`、`query`（= prompt + 可选前缀）
   - 默认**全局召回**：`recallGlobal=true` 时不传 `conversation_id`
