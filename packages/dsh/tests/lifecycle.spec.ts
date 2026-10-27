@@ -192,7 +192,7 @@ describe('pre-step lifecycle', () => {
 
   it('prefers the agentPreset projection over the initial header value', async () => {
     const harness = setup({ multiAgentMode: true, agentId: 'headless-fallback' })
-    Object.assign(harness.ctx, { sessionProjections: presetProjection('ptc') })
+    harness.ctx.provide('sessionProjections', presetProjection('ptc'))
     await dispatchPreStep(
       harness,
       createSession('session-1', { agentPreset: 'code' }),
@@ -206,7 +206,7 @@ describe('pre-step lifecycle', () => {
 
   it('does not revive the header preset when the projection reports none', async () => {
     const harness = setup({ multiAgentMode: true, agentId: 'headless-fallback' })
-    Object.assign(harness.ctx, { sessionProjections: presetProjection(null) })
+    harness.ctx.provide('sessionProjections', presetProjection(null))
     await dispatchPreStep(
       harness,
       createSession('session-1', { agentPreset: 'code' }),
@@ -349,7 +349,7 @@ describe('turn-end lifecycle', () => {
   it('tags the write with the projected preset rather than the initial header value', async () => {
     const add = vi.fn(async () => ({ success: true }))
     const harness = setup({ multiAgentMode: true, agentId: 'headless-fallback' }, { add })
-    Object.assign(harness.ctx, { sessionProjections: presetProjection('ptc') })
+    harness.ctx.provide('sessionProjections', presetProjection('ptc'))
     const session = createSession('session-1', { agentPreset: 'coding' })
     const end = appendTurn(session, 1, 'remember this')
 

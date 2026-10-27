@@ -52,14 +52,15 @@ interface SessionProjectionsLike {
  */
 const agentPresetOf = (ctx: Context, session: Session): string | undefined => {
   try {
-    const projections = (ctx as Context & { sessionProjections?: SessionProjectionsLike })
-      .sessionProjections
+    // This optional service is not declared in inject. Property access would
+    // throw in a mounted Cordis plugin, so query it through get().
+    const projections = ctx.get('sessionProjections') as SessionProjectionsLike | undefined
     const current = projections?.stateOf?.(session, 'agentPreset')
-    if (current === undefined) return session.header.agentPreset
-    return typeof current === 'string' ? current : undefined
+    if (current !== undefined) return typeof current === 'string' ? current : undefined
   } catch {
-    return session.header.agentPreset
+    // Older hosts may not expose the projection or may not have registered it.
   }
+  return session.header.agentPreset
 }
 
 const errorDescription = (error: unknown, configError: boolean): string => {
