@@ -6,6 +6,7 @@ import {
   extractResultData,
   extractText,
   formatRecallHookResult,
+  resolveRecallContextPlacement,
   isAgentAllowed,
   isOpenClawSystemPrompt,
   resolveAgentConfig,
@@ -24,6 +25,7 @@ import {
   waitForGatewayReady,
 } from "./lib/config-ui-server.js";
 import { buildMemosAddRequest, buildMemosSearchRequest } from "./lib/memos-core/index.js";
+import { detectRecallHostVersion } from "./lib/recall-host-version.js";
 let lastCaptureTime = 0;
 // ponytail: in-process cache; replace with server idempotency for cross-restart or multi-instance guarantees.
 const recentCaptureKeys = new Set();
@@ -731,6 +733,7 @@ export default {
 
     // Detect the host CLI version once so every hook registration branch can reference it.
     const hostVersion = detectHostVersion();
+    const recallHostVersion = detectRecallHostVersion(api);
 
     // Side effects below are only meaningful when the host CLI was actually
     // launched to run the gateway (`openclaw gateway run|start|restart`).
@@ -847,6 +850,7 @@ export default {
           wrapTagBlocks: true,
           relativity: payload.relativity,
           maxItemChars: agentCfg.maxItemChars,
+          contextPlacement: resolveRecallContextPlacement(ctx, usesBeforePromptBuild, recallHostVersion),
         });
         if (!hookResult.appendSystemContext && !hookResult.prependContext) return;
 
