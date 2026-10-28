@@ -252,8 +252,24 @@ export const createReleaseOperations = ({ root = repositoryRoot } = {}) => {
       if (staged === null) {
         throw new Error(`npm did not stage ${definition.packageName}@${version} with tag ${distTag}`)
       }
-      process.stdout.write(`Enter the 2FA code for ${definition.packageName}@${version}, then press Enter.\n`)
-      runChecked('npm', ['stage', 'approve', staged.id], { cwd: root })
+      const prompt = createInterface({ input: process.stdin, output: process.stdout })
+      let otp = ''
+      try {
+        otp = (await prompt.question(`Enter the 2FA code for ${definition.packageName}@${version}: `)).trim()
+      } finally {
+        prompt.close()
+      }
+      if (!otp) throw new Error('A 2FA code is required to approve the staged package')
+      try {
+        runChecked('npm', ['stage', 'approve', staged.id, '--otp', otp], { cwd: root })
+      } catch (error) {
+        const detail = (error instanceof Error ? error.message : String(error)).replaceAll(otp, '[otp]')
+        if (/not found|E404/i.test(detail)) {
+          const account = staged.actor || 'YOUR_NPM_USERNAME'
+          throw new Error(`${detail}\nThis access token can stage the package but cannot approve it. Open https://www.npmjs.com/settings/${account}/staged-packages and approve ${definition.packageName}@${version} there. The page will ask for the 2FA code.`)
+        }
+        throw new Error(detail)
+      }
     },
     log: (message) => process.stdout.write(`${message}\n`),
   }
