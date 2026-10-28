@@ -140,41 +140,16 @@ export const runRelease = async (options, providedOperations) => {
   }
 
   const sourceCommit = operations.head()
-  let publishError
-  try {
-    operations.publish(definition, plan.distTag)
-  } catch (error) {
-    publishError = error
-  }
+  await operations.publish(definition, plan.distTag)
+
+  if (operations.handedOffToBrowser) return { ...plan, sourceCommit }
 
   const readPublished = operations.waitForRegistryMetadata ?? operations.readRegistryMetadata
-  let metadata
-  try {
-    metadata = await readPublished(definition, plan.targetVersion, {
-      distTag: plan.distTag,
-      sourceCommit,
-    })
-  } catch (visibilityError) {
-    if (publishError !== undefined) {
-      throw new AggregateError(
-        [publishError, visibilityError],
-        'npm publish failed and registry verification also failed',
-      )
-    }
-    throw visibilityError
-  }
-  try {
-    validatePublishedMetadata({ metadata, plan, sourceCommit })
-  } catch (verificationError) {
-    if (publishError !== undefined) {
-      throw new AggregateError([publishError, verificationError], 'npm publish failed and no matching release became visible')
-    }
-    throw verificationError
-  }
-
-  if (publishError !== undefined) {
-    operations.log('npm returned an error, but the exact version, gitHead, and dist-tag are verified; no retry was attempted.')
-  }
+  const metadata = await readPublished(definition, plan.targetVersion, {
+    distTag: plan.distTag,
+    sourceCommit,
+  })
+  validatePublishedMetadata({ metadata, plan, sourceCommit })
   operations.log(`Published and verified ${plan.packageName}@${plan.targetVersion} from ${sourceCommit}`)
   return { ...plan, sourceCommit }
 }

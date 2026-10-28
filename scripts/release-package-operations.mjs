@@ -1,10 +1,11 @@
+import { spawn } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 
 import { waitForNpmReleaseVisibility } from '../.github/scripts/wait-for-npm-release.mjs'
 import { packPackage } from './pack-package.mjs'
-import { repositoryRoot, runChecked, runPnpm } from './command-runtime.mjs'
+import { pnpmInvocation, repositoryRoot, runChecked, runPnpm } from './command-runtime.mjs'
 
 const gitSafeDirectory = (root) => root.replaceAll('\\', '/')
 const git = (root, args, options = {}) => runChecked(
@@ -48,8 +49,15 @@ const readConsistentVersion = (definition, root) => {
   return expected
 }
 
-const parseRegistryMetadata = (output) => {
+export const parseNpmViewJson = (output) => {
   const value = JSON.parse(output)
+  if (!Array.isArray(value)) return value
+  if (value.length !== 1) throw new Error(`npm returned ${value.length} JSON results`)
+  return value[0]
+}
+
+export const parseRegistryMetadata = (output) => {
+  const value = parseNpmViewJson(output)
   return {
     version: value.version,
     gitHead: value.gitHead,
@@ -58,6 +66,79 @@ const parseRegistryMetadata = (output) => {
 }
 
 const isRegistryMiss = (error) => /E404|404 Not Found|No match found/i.test(error instanceof Error ? error.message : String(error))
+
+export const acceptsPublishConfirmation = (answer) => answer.trim().toLowerCase() === 'y'
+
+export const stagedApprovalUrl = (actor) => (
+  `https://www.npmjs.com/settings/${actor || 'YOUR_NPM_USERNAME'}/staged-packages`
+)
+
+export const browserApprovalNotice = ({ packageName, version, url }) => {
+  const rule = '='.repeat(64)
+  return [
+    '',
+    rule,
+    '请在浏览器中打开下面的链接并点击批准，插件将在批准成功后发布',
+    `${packageName}@${version}`,
+    url,
+    rule,
+    '',
+  ].join('\n')
+}
+
+export const publishConfirmationPrompt = (expected) => {
+  const label = expected.replace(/^PUBLISH\s+/, '')
+  return `Publish ${label}? [y/n] `
+}
+
+export const directPublishRequiresStaging = (output) => (
+  /two-factor authentication|bypass 2fa|E_STAGE_REQUIRED|npm stage publish|staged version|already staged|ERR_PNPM_OTP_NON_INTERACTIVE|additional authentication/i.test(output)
+)
+
+export const parseStageList = (output) => {
+  const trimmed = output.trim()
+  const start = trimmed.indexOf('[')
+  const items = JSON.parse(start === -1 ? trimmed : trimmed.slice(start))
+  if (!Array.isArray(items)) throw new Error('npm stage list returned invalid JSON')
+  return items
+}
+
+export const findStagedPackage = (items, { packageName, version, tag }) => {
+  const matches = items.filter((item) => (
+    item?.packageName === packageName
+    && item?.version === version
+    && item?.tag === tag
+    && typeof item?.id === 'string'
+    && item.id.length > 0
+  ))
+  matches.sort((left, right) => String(right.createdAt ?? '').localeCompare(String(left.createdAt ?? '')))
+  return matches[0] ?? null
+}
+
+const runPnpmCollected = (args, cwd) => new Promise((resolve, reject) => {
+  const invocation = pnpmInvocation(args)
+  const child = spawn(invocation.command, invocation.args, {
+    cwd,
+    env: process.env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  let output = ''
+  const forward = (chunk, stream) => {
+    const text = chunk.toString()
+    output += text
+    stream.write(text)
+  }
+  child.stdout?.on('data', (chunk) => forward(chunk, process.stdout))
+  child.stderr?.on('data', (chunk) => forward(chunk, process.stderr))
+  child.on('error', reject)
+  child.on('close', (status) => {
+    if (status !== 0) {
+      reject(new Error(output.trim() || `Command failed (${status}): ${invocation.command} ${invocation.args.join(' ')}`))
+      return
+    }
+    resolve()
+  })
+})
 
 export const createReleaseOperations = ({ root = repositoryRoot } = {}) => {
   const npmView = (args) => runPnpm(['exec', 'npm', 'view', ...args, '--json'], {
@@ -109,7 +190,7 @@ export const createReleaseOperations = ({ root = repositoryRoot } = {}) => {
     npmWhoami: () => runPnpm(['exec', 'npm', 'whoami'], { cwd: root, stdio: 'pipe' }),
     readDistTagVersion: (definition, distTag) => {
       try {
-        const version = JSON.parse(npmView([`${definition.packageName}@${distTag}`, 'version']))
+        const version = parseNpmViewJson(npmView([`${definition.packageName}@${distTag}`, 'version']))
         if (typeof version !== 'string') throw new Error(`npm returned an invalid ${distTag} version`)
         return version
       } catch (error) {
@@ -135,8 +216,9 @@ export const createReleaseOperations = ({ root = repositoryRoot } = {}) => {
     confirm: async (expected) => {
       const prompt = createInterface({ input: process.stdin, output: process.stdout })
       try {
-        const answer = await prompt.question(`Type ${expected} to continue: `)
-        if (answer.trim() !== expected) throw new Error(`Publish confirmation must exactly equal: ${expected}`)
+        const answer = await prompt.question(publishConfirmationPrompt(expected))
+        if (answer.trim().toLowerCase() === 'n') throw new Error('Publish cancelled')
+        if (!acceptsPublishConfirmation(answer)) throw new Error('Publish confirmation must be y')
       } finally {
         prompt.close()
       }
@@ -155,9 +237,46 @@ export const createReleaseOperations = ({ root = repositoryRoot } = {}) => {
       git(root, ['add', '--', ...definition.versionFiles])
       git(root, ['commit', '-m', `chore(${definition.key}): release ${definition.tagPrefix}${version}`])
     },
-    publish: (definition, distTag) => runPnpm([
-      '--dir', definition.packageDirectory, 'publish', '--access', 'public', '--tag', distTag,
-    ], { cwd: root }),
+    publish: async function publish (definition, distTag) {
+      const version = readConsistentVersion(definition, root)
+      const publishArgs = ['--dir', definition.packageDirectory, 'publish', '--access', 'public', '--tag', distTag, '--no-git-checks']
+      process.stdout.write(`Publishing ${definition.packageName}@${version}...\n`)
+      try {
+        await runPnpmCollected(publishArgs, root)
+        return
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error)
+        if (!directPublishRequiresStaging(detail)) throw error
+        process.stdout.write('Direct publish needs a staged approval. Staging the package instead.\n')
+      }
+
+      const listStaged = () => findStagedPackage(
+        parseStageList(runChecked('npm', ['stage', 'list', definition.packageName, '--json'], {
+          cwd: root,
+          stdio: ['ignore', 'pipe', 'inherit'],
+        })),
+        { packageName: definition.packageName, version, tag: distTag },
+      )
+      let staged = listStaged()
+      if (staged === null) {
+        runChecked('npm', [
+          'stage', 'publish', `./${definition.packageDirectory}`, '--access', 'public', '--tag', distTag,
+        ], { cwd: root })
+        staged = listStaged()
+      } else {
+        process.stdout.write(`Using the existing staged ${definition.packageName}@${version}.\n`)
+      }
+      if (staged === null) {
+        throw new Error(`npm did not stage ${definition.packageName}@${version} with tag ${distTag}`)
+      }
+      const approvalUrl = stagedApprovalUrl(staged.actor)
+      process.stdout.write(`${browserApprovalNotice({
+        packageName: definition.packageName,
+        version,
+        url: approvalUrl,
+      })}\n`)
+      this.handedOffToBrowser = true
+    },
     log: (message) => process.stdout.write(`${message}\n`),
   }
 }

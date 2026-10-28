@@ -5,16 +5,20 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
+import { pnpmInvocation } from './command-runtime.mjs'
+
 const root = new URL('../', import.meta.url).pathname.replace(/^\/(?=[A-Za-z]:)/, '')
-const pnpmEntry = process.env.npm_execpath
-if (!pnpmEntry) throw new Error('Run this verifier through pnpm so npm_execpath is available')
+if (!process.env.npm_execpath) throw new Error('Run this verifier through pnpm so npm_execpath is available')
 
 const run = (command, args, cwd = root) => execFileSync(command, args, {
   cwd,
   encoding: 'utf8',
   stdio: ['ignore', 'pipe', 'pipe'],
 })
-const runPnpm = (args, cwd = root) => run(process.execPath, [pnpmEntry, ...args], cwd)
+const runPnpm = (args, cwd = root) => {
+  const invocation = pnpmInvocation(args)
+  return run(invocation.command, invocation.args, cwd)
+}
 
 const artifactRoot = mkdtempSync(join(tmpdir(), 'memos-cloud-packages-'))
 
