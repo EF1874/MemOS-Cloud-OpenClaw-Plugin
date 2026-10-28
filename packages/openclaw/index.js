@@ -6,6 +6,7 @@ import {
   extractResultData,
   extractText,
   formatRecallHookResult,
+  resolveRecallContextPlacement,
   isAgentAllowed,
   isOpenClawSystemPrompt,
   resolveAgentConfig,
@@ -24,6 +25,7 @@ import {
 } from "./lib/config-ui-server.js";
 import { detectHostRuntime, readHostRuntimeVersion } from "./lib/host-runtime.js";
 import { buildMemosAddRequest, buildMemosSearchRequest } from "./lib/memos-core/index.js";
+import { detectRecallHostVersion } from "./lib/recall-host-version.js";
 let lastCaptureTime = 0;
 // ponytail: in-process cache; replace with server idempotency for cross-restart or multi-instance guarantees.
 const recentCaptureKeys = new Set();
@@ -734,6 +736,9 @@ export default {
     const runtimeVersion = readHostRuntimeVersion(api);
     const host = runtimeVersion === null ? detectHostRuntime() : null;
     const hostVersion = runtimeVersion ?? host?.version ?? null;
+    // Placement checks need the full version to distinguish affected releases
+    // from prereleases; hook selection above only needs the numeric version.
+    const recallHostVersion = detectRecallHostVersion(api);
 
     // Side effects below are only meaningful when the host CLI was actually
     // launched to run the gateway (`openclaw gateway run|start|restart`).
@@ -850,6 +855,7 @@ export default {
           wrapTagBlocks: true,
           relativity: payload.relativity,
           maxItemChars: agentCfg.maxItemChars,
+          contextPlacement: resolveRecallContextPlacement(ctx, usesBeforePromptBuild, recallHostVersion),
         });
         if (!hookResult.appendSystemContext && !hookResult.prependContext) return;
 

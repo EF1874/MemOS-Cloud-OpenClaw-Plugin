@@ -159,7 +159,9 @@ MEMOS_API_KEY=YOUR_TOKEN
   - 默认**全局召回**：`recallGlobal=true` 时不传 `conversation_id`
   - 可选 `filter` / `knowledgebase_ids`
 - （可选）若开启 `recallFilterEnabled`，会先把 `memory/preference/tool_memory` 候选发给你配置的模型做二次筛选，只保留 `keep` 的条目
-- 将稳定的 MemOS 召回协议通过 `appendSystemContext` 注入，而检索到的 `<memories>` 数据块继续通过 `prependContext` 注入
+- 稳定的 MemOS 召回协议通过 `appendSystemContext` 注入，无需用户配置。只有已确认受影响的 OpenClaw 正式版 `2026.10.2`–`2026.10.7`，使用 `before_prompt_build` 且当前轮明确标记为 `inter_session` 时，才将召回记忆放入 `appendSystemContext`。更早版本、预发布版（包括不受影响的 `2026.10.5-beta.1`）、未知版本及尚未验证的新版本，均保留 `prependContext`，保持原有缓存布局；该 inter_session 分支以外的固定系统协议文案也逐字保持原样。受影响版本列表在验证后再扩展。
+- 旧版 `before_agent_start` 宿主或未提供来源字段的宿主保持正文前置。插件只使用当前轮宿主提供的来源字段，不从正文关键词或旧历史推测当前来源。
+- system 路径只放过滤后的记忆数据，不携带用户问题标记，并明确其为当前 Agent 的不可信参考数据。动态系统内容可能降低提示词缓存复用率。检索身份和过滤规则保持不变，不改写消息或来源封套。
 
 ### 2) 添加（agent_end）
 - 默认只写**最后一轮**（user + assistant）

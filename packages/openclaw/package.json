@@ -19,7 +19,8 @@
     "sync-version": "node scripts/sync-version.js",
     "pack:local": "node ../../scripts/pack-package.mjs openclaw",
     "prepack": "pnpm build",
-    "version": "pnpm sync-version && git add openclaw.plugin.json moltbot.plugin.json clawdbot.plugin.json"
+    "version": "pnpm sync-version && git add openclaw.plugin.json moltbot.plugin.json clawdbot.plugin.json",
+    "test:live:sessions-send": "node scripts/live-sessions-send.mjs"
   },
   "keywords": [
     "memos",
