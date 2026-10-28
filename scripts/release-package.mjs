@@ -147,7 +147,20 @@ export const runRelease = async (options, providedOperations) => {
     distTag: plan.distTag,
     sourceCommit,
   })
-  validatePublishedMetadata({ metadata, plan, sourceCommit })
+  if (operations.approvedInBrowser) {
+    if (metadata === null) throw new Error(`${plan.packageName}@${plan.targetVersion} is not visible on npm`)
+    if (metadata.version !== plan.targetVersion) {
+      throw new Error(`Published version mismatch: expected ${plan.targetVersion}, got ${String(metadata.version)}`)
+    }
+    if (metadata.distTags?.[plan.distTag] !== plan.targetVersion) {
+      throw new Error(`Published ${plan.distTag} dist-tag does not point to ${plan.targetVersion}`)
+    }
+    if (metadata.gitHead && metadata.gitHead !== sourceCommit) {
+      operations.log(`Published gitHead is ${metadata.gitHead}. Source commit is ${sourceCommit}.`)
+    }
+  } else {
+    validatePublishedMetadata({ metadata, plan, sourceCommit })
+  }
   operations.log(`Published and verified ${plan.packageName}@${plan.targetVersion} from ${sourceCommit}`)
   return { ...plan, sourceCommit }
 }

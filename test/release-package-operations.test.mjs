@@ -6,6 +6,7 @@ import test from 'node:test'
 
 import {
   acceptsPublishConfirmation,
+  stagedApprovalUrl,
   publishConfirmationPrompt,
   directPublishRequiresStaging,
   captureVersionFileSnapshots,
@@ -45,6 +46,13 @@ test('stages only when direct publish is blocked by the registry policy', () => 
   ), true)
   assert.equal(directPublishRequiresStaging('You cannot publish over the previously published versions'), false)
   assert.equal(directPublishRequiresStaging('ENEEDAUTH This command requires you to be logged in'), false)
+})
+
+test('builds the npm staged-packages page for the publishing account', () => {
+  assert.equal(
+    stagedApprovalUrl('leason1974'),
+    'https://www.npmjs.com/settings/leason1974/staged-packages',
+  )
 })
 
 test('asks for y or n instead of the publish phrase', () => {

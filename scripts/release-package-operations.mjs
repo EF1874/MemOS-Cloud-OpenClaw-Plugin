@@ -69,6 +69,10 @@ const isRegistryMiss = (error) => /E404|404 Not Found|No match found/i.test(erro
 
 export const acceptsPublishConfirmation = (answer) => answer.trim().toLowerCase() === 'y'
 
+export const stagedApprovalUrl = (actor) => (
+  `https://www.npmjs.com/settings/${actor || 'YOUR_NPM_USERNAME'}/staged-packages`
+)
+
 export const publishConfirmationPrompt = (expected) => {
   const label = expected.replace(/^PUBLISH\s+/, '')
   return `Publish ${label}? [y/n] `
@@ -252,24 +256,25 @@ export const createReleaseOperations = ({ root = repositoryRoot } = {}) => {
       if (staged === null) {
         throw new Error(`npm did not stage ${definition.packageName}@${version} with tag ${distTag}`)
       }
-      const prompt = createInterface({ input: process.stdin, output: process.stdout })
-      let otp = ''
-      try {
-        otp = (await prompt.question(`Enter the 2FA code for ${definition.packageName}@${version}: `)).trim()
-      } finally {
-        prompt.close()
-      }
-      if (!otp) throw new Error('A 2FA code is required to approve the staged package')
-      try {
-        runChecked('npm', ['stage', 'approve', staged.id, '--otp', otp], { cwd: root })
-      } catch (error) {
-        const detail = (error instanceof Error ? error.message : String(error)).replaceAll(otp, '[otp]')
-        if (/not found|E404/i.test(detail)) {
-          const account = staged.actor || 'YOUR_NPM_USERNAME'
-          throw new Error(`${detail}\nThis access token can stage the package but cannot approve it. Open https://www.npmjs.com/settings/${account}/staged-packages and approve ${definition.packageName}@${version} there. The page will ask for the 2FA code.`)
+      const approvalUrl = stagedApprovalUrl(staged.actor)
+      process.stdout.write(`This token cannot approve the package in the terminal. Open this page and approve ${definition.packageName}@${version}:\n${approvalUrl}\nWaiting until npm shows the ${distTag} tag. The script exits when the release is visible.\n`)
+      const deadline = Date.now() + 10 * 60 * 1000
+      while (Date.now() < deadline) {
+        let liveVersion = null
+        try {
+          const viewed = parseNpmViewJson(npmView([`${definition.packageName}@${distTag}`, 'version']))
+          liveVersion = typeof viewed === 'string' ? viewed : null
+        } catch (error) {
+          if (!isRegistryMiss(error)) throw error
         }
-        throw new Error(detail)
+        if (liveVersion === version) {
+          process.stdout.write(`${definition.packageName}@${version} is live on ${distTag}.\n`)
+          this.approvedInBrowser = true
+          return
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5000))
       }
+      throw new Error(`Timed out waiting for ${definition.packageName}@${version} on the ${distTag} tag. Approve it at ${approvalUrl}`)
     },
     log: (message) => process.stdout.write(`${message}\n`),
   }
