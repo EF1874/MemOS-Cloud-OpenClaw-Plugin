@@ -158,7 +158,9 @@ In `plugins.entries.memos-cloud-openclaw-plugin.config`:
 - Builds a `/search/memory` request using `user_id`, `query` (= prompt + optional prefix), and optional filters.
 - Default **global recall**: when `recallGlobal=true`, it does **not** pass `conversation_id`.
 - Optional second-pass filtering: if `recallFilterEnabled=true`, candidates are sent to your configured model and only returned `keep` items are injected.
-- Injects a stable MemOS recall protocol via `appendSystemContext`, while the retrieved `<memories>` block remains in `prependContext`.
+- Injects a stable MemOS recall protocol via `appendSystemContext`. No user setting is needed: retrieved `<memories>` remain in `prependContext` except on confirmed affected OpenClaw releases `2026.10.2`–`2026.10.7`, where current `inter_session` inputs use `appendSystemContext` with `before_prompt_build`. Earlier releases, prereleases (including the unaffected `2026.10.5-beta.1`), unknown versions and unverified future releases retain prepend placement to preserve the existing prompt-cache layout. The existing fixed system protocol is also preserved byte-for-byte outside that affected inter-session path. The affected-release list is extended only after verification.
+- Hosts using legacy `before_agent_start`, or not providing current input provenance, retain prepended context. The plugin uses only the current turn's host-provided provenance; it never infers the current origin from message text or old history.
+- System placement includes only filtered memory data, without a user-query marker, and marks it as untrusted reference data for the active agent. Dynamic system content can reduce prompt-cache reuse. Memory retrieval identity and filters are unchanged; no message or source envelope is rewritten.
 
 ### 2) Add (`agent_end`)
 
