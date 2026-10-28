@@ -220,7 +220,7 @@ export const createReleaseOperations = ({ root = repositoryRoot } = {}) => {
     },
     publish: async (definition, distTag) => {
       const version = readConsistentVersion(definition, root)
-      const publishArgs = ['--dir', definition.packageDirectory, 'publish', '--access', 'public', '--tag', distTag]
+      const publishArgs = ['--dir', definition.packageDirectory, 'publish', '--access', 'public', '--tag', distTag, '--no-git-checks']
       process.stdout.write(`Publishing ${definition.packageName}@${version}...\n`)
       try {
         await runPnpmCollected(publishArgs, root)
@@ -248,7 +248,7 @@ export const createReleaseOperations = ({ root = repositoryRoot } = {}) => {
       if (staged === null) {
         throw new Error(`npm did not stage ${definition.packageName}@${version} with tag ${distTag}`)
       }
-      process.stdout.write(`Approving staged ${definition.packageName}@${version}. Complete the 2FA prompt if npm asks for it.\n`)
+      process.stdout.write(`Enter the 2FA code for ${definition.packageName}@${version}, then press Enter.\n`)
       runChecked('npm', ['stage', 'approve', staged.id], { cwd: root })
     },
     log: (message) => process.stdout.write(`${message}\n`),
