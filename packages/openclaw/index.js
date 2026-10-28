@@ -18,12 +18,12 @@ import { startUpdateChecker } from "./lib/check-update.js";
 import {
   closeConfigUiService,
   compareVersionStrings,
-  detectHostVersion,
   ensureConfigUiService,
   ensurePluginHookPolicy,
   isGatewayRuntimeStartup,
   waitForGatewayReady,
 } from "./lib/config-ui-server.js";
+import { detectHostRuntime, readHostRuntimeVersion } from "./lib/host-runtime.js";
 import { buildMemosAddRequest, buildMemosSearchRequest } from "./lib/memos-core/index.js";
 import { detectRecallHostVersion } from "./lib/recall-host-version.js";
 let lastCaptureTime = 0;
@@ -731,8 +731,13 @@ export default {
     // Start 12-hour background update interval
     startUpdateChecker(log);
 
-    // Detect the host CLI version once so every hook registration branch can reference it.
-    const hostVersion = detectHostVersion();
+    // The injected runtime belongs to the running host, even behind a wrapper.
+    // Inspect entrypoint/package hints only when the API has no usable version.
+    const runtimeVersion = readHostRuntimeVersion(api);
+    const host = runtimeVersion === null ? detectHostRuntime() : null;
+    const hostVersion = runtimeVersion ?? host?.version ?? null;
+    // Placement checks need the full version to distinguish affected releases
+    // from prereleases; hook selection above only needs the numeric version.
     const recallHostVersion = detectRecallHostVersion(api);
 
     // Side effects below are only meaningful when the host CLI was actually
@@ -860,13 +865,16 @@ export default {
       }
     };
 
-    // Recall mutates prompt context only, so the phase-specific replacement for
-    // legacy before_agent_start is before_prompt_build. Do not register both on
-    // new hosts, otherwise the same memory block can be injected twice.
+    // Official Clawdbot/Moltbot runtime versions predate the new hook. An API
+    // version takes precedence over product names inferred from entrypoints.
+    // When both API and path/package detection fail, default to the new hook;
+    // a versionless early OpenClaw remains an unresolved compatibility case.
+    // Register exactly one recall hook to avoid duplicate searches/injection.
+    // Preserve the plugin's original migration boundary at OpenClaw v2026.5.7.
     const PROMPT_BUILD_HOOK_MIN_VERSION = "2026.5.7";
     const usesBeforePromptBuild =
-      hostVersion !== null &&
-      compareVersionStrings(hostVersion, PROMPT_BUILD_HOOK_MIN_VERSION) >= 0;
+      (runtimeVersion !== null || host?.id === "openclaw") &&
+      (hostVersion === null || compareVersionStrings(hostVersion, PROMPT_BUILD_HOOK_MIN_VERSION) >= 0);
 
     if (usesBeforePromptBuild) {
       api.on("before_prompt_build", runRecall);

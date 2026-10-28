@@ -189,6 +189,9 @@ test("version-gated hooks preserve old and prerelease memory placement", async (
     ["2026.10.5-beta.1", undefined, "prepend"],
     ["2026.10.5", { version: "2026.10.1" }, "prepend"],
     ["2026.10.5", { version: "2026.10.5-beta.1" }, "prepend"],
+    ["2026.4.26", { version: "2026.10.5" }, "system"],
+    ["2026.4.26", { version: "2026.10.5-beta.1" }, "prepend"],
+    ["2026.10.5", { version: "2026.4.26" }, "prepend"],
     ["2026.10.8", undefined, "prepend"],
   ]) {
     const value = await recallHook(entryVersion, {}, runtime)({ prompt: "Recall my saved plan", messages: [] }, ctx);

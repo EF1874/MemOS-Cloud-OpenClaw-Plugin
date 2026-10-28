@@ -5,7 +5,7 @@ Official plugin maintained by MemTensor.
 A minimal OpenClaw lifecycle plugin that **recalls** memories from MemOS Cloud before each run and **adds** new messages to MemOS Cloud after each run.
 
 ## Features
-- **Recall**: `before_prompt_build` (`before_agent_start` on older OpenClaw hosts) → `/search/memory`
+- **Recall**: `before_prompt_build` (`before_agent_start` on known older OpenClaw hosts, Moltbot, and ClawDBot) → `/search/memory`
 - **Add**: `agent_end` → `/add/message`
 - **Config UI**: starting the gateway also starts a local plugin config page for editing `plugins.entries.memos-cloud-openclaw-plugin.config`
 - Uses **Token** auth (`Authorization: Token <MEMOS_API_KEY>`)
@@ -153,7 +153,8 @@ In `plugins.entries.memos-cloud-openclaw-plugin.config`:
 
 ## How it Works
 
-### 1) Recall (`before_prompt_build`; falls back to `before_agent_start` on older OpenClaw hosts)
+### 1) Recall (`before_prompt_build`; legacy hosts use `before_agent_start`)
+- Recall first reads the running host's `api.runtime.version`: versions from `2026.5.7` use `before_prompt_build`; earlier versions use `before_agent_start`, including official Moltbot/ClawDBot releases. This preserves the plugin's original migration boundary. If the API has no usable version, host package and entrypoint detection provide a fallback; recognized legacy hosts use the old hook, while unknown OpenClaw versions default to the new hook. An early OpenClaw with no detectable version remains a compatibility limitation. Only one recall hook is registered.
 
 - Builds a `/search/memory` request using `user_id`, `query` (= prompt + optional prefix), and optional filters.
 - Default **global recall**: when `recallGlobal=true`, it does **not** pass `conversation_id`.

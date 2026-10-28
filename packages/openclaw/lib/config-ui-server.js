@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { Script } from "node:vm";
 import { checkForPluginUpdate, getPackageVersion } from "./check-update.js";
 import { getConfigResolution } from "./memos-cloud-api.js";
+import { detectHostRuntime } from "./host-runtime.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -52,7 +53,7 @@ const FIELD_DEFINITIONS = [
   { key: "resetOnNew", group: "session", type: "boolean", label: "Reset On /new", description: "Requires hooks.internal.enabled when counter suffix mode is used." },
   { key: "queryPrefix", group: "session", type: "textarea", rows: 4, label: "Query Prefix", description: "Extra text prepended to query before retrieval.", placeholder: "important user context preferences decisions " },
   { key: "maxQueryChars", group: "session", type: "integer", label: "Max Query Chars", description: "Limit the query text length before sending recall search.", placeholder: "0" },
-  { key: "recallEnabled", group: "session", type: "boolean", label: "Recall Enabled", description: "Enable before_agent_start memory recall." },
+  { key: "recallEnabled", group: "session", type: "boolean", label: "Recall Enabled", description: "Enable memory recall before prompt construction." },
   { key: "recallGlobal", group: "session", type: "boolean", label: "Global Recall", description: "When enabled, query is sent without conversation_id, so current-session weighting is not emphasized." },
   { key: "maxItemChars", group: "session", type: "integer", label: "Max Item Chars", description: "Maximum characters kept when injecting each recalled memory item into context.", placeholder: "8000" },
   { key: "memoryLimitNumber", group: "session", type: "integer", label: "Memory Limit", description: "Maximum number of recalled memories. Default is 9, max is 25.", placeholder: "9" },
@@ -156,13 +157,12 @@ function createRevision(value) {
 }
 
 function detectRuntimeProfile() {
-  const scriptPath = String(process.argv[1] || "").toLowerCase();
-  const execPath = String(process.execPath || "").toLowerCase();
+  const { id } = detectHostRuntime();
 
-  if (scriptPath.includes("moltbot") || execPath.includes("moltbot")) {
+  if (id === "moltbot") {
     return { id: "moltbot", displayName: "Moltbot", cliName: "moltbot", configPath: join(homedir(), ".moltbot", "moltbot.json") };
   }
-  if (scriptPath.includes("clawdbot") || execPath.includes("clawdbot")) {
+  if (id === "clawdbot") {
     return { id: "clawdbot", displayName: "ClawDBot", cliName: "clawdbot", configPath: join(homedir(), ".clawdbot", "clawdbot.json") };
   }
   return { id: "openclaw", displayName: "OpenClaw", cliName: "openclaw", configPath: join(homedir(), ".openclaw", "openclaw.json") };
@@ -171,39 +171,11 @@ function detectRuntimeProfile() {
 /**
  * Detect the version of the host CLI (openclaw / moltbot / clawdbot).
  *
- * Strategy (in order of preference):
- *  1. Parse `@X.Y.Z` out of `process.argv[1]` — pnpm/npm global installs
- *     always embed the version in the store path
- *     (e.g. `.../openclaw@2026.4.26/node_modules/openclaw/openclaw.mjs`).
- *  2. Walk up from `process.argv[1]` looking for a `package.json` that has
- *     a `version` field — covers local `node` invocations and bundled builds.
- *  3. Return `null` if neither succeeds.
+ * Resolve CLI symlinks and read only recognized host package metadata or a
+ * versioned host store path. Wrapper package versions are not host versions.
  */
 export function detectHostVersion() {
-  const scriptPath = String(process.argv[1] || "");
-
-  const atMatch = scriptPath.match(/@(\d+\.\d+(?:\.\d+)?)/);
-  if (atMatch) return atMatch[1];
-
-  try {
-    let dir = dirname(scriptPath);
-    for (let i = 0; i < 8; i++) {
-      try {
-        const raw = readFileSync(join(dir, "package.json"), "utf8");
-        const pkg = JSON.parse(raw);
-        if (pkg.version && typeof pkg.version === "string") return pkg.version;
-      } catch {
-        // not found at this level, keep walking
-      }
-      const parent = dirname(dir);
-      if (parent === dir) break;
-      dir = parent;
-    }
-  } catch {
-    // ignore
-  }
-
-  return null;
+  return detectHostRuntime().version;
 }
 
 /**
