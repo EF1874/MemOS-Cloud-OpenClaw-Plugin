@@ -8,6 +8,7 @@ import {
   acceptsPublishConfirmation,
   publishConfirmationPrompt,
   directPublishRequiresStaging,
+  publishStoppedBeforeUpload,
   captureVersionFileSnapshots,
   findStagedPackage,
   parseNpmViewJson,
@@ -45,6 +46,8 @@ test('stages only when direct publish is blocked by the registry policy', () => 
   ), true)
   assert.equal(directPublishRequiresStaging('You cannot publish over the previously published versions'), false)
   assert.equal(directPublishRequiresStaging('ENEEDAUTH This command requires you to be logged in'), false)
+  assert.equal(publishStoppedBeforeUpload("[ERR_PNPM_GIT_NOT_CORRECT_BRANCH] Branch is not on 'master|main'."), true)
+  assert.equal(publishStoppedBeforeUpload('403 Forbidden - Two-factor authentication is required'), false)
 })
 
 test('asks for y or n instead of the publish phrase', () => {

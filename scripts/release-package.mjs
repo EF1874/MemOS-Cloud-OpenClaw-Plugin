@@ -2,7 +2,7 @@ import { resolve } from 'node:path'
 import semver from 'semver'
 
 import { isMainModule } from './command-runtime.mjs'
-import { createReleaseOperations } from './release-package-operations.mjs'
+import { createReleaseOperations, publishStoppedBeforeUpload } from './release-package-operations.mjs'
 import {
   getPluginDefinition,
   planReleaseVersion,
@@ -145,6 +145,7 @@ export const runRelease = async (options, providedOperations) => {
     await operations.publish(definition, plan.distTag)
   } catch (error) {
     publishError = error
+    if (publishStoppedBeforeUpload(error instanceof Error ? error.message : String(error))) throw error
   }
 
   const readPublished = operations.waitForRegistryMetadata ?? operations.readRegistryMetadata

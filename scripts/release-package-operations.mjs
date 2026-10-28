@@ -78,6 +78,8 @@ export const directPublishRequiresStaging = (output) => (
   /two-factor authentication|bypass 2fa|E_STAGE_REQUIRED|npm stage publish|staged version|already staged/i.test(output)
 )
 
+export const publishStoppedBeforeUpload = (output) => /ERR_PNPM_GIT_NOT_CORRECT_BRANCH|publish-branch/i.test(output)
+
 export const parseStageList = (output) => {
   const trimmed = output.trim()
   const start = trimmed.indexOf('[')
@@ -222,7 +224,7 @@ export const createReleaseOperations = ({ root = repositoryRoot } = {}) => {
     },
     publish: async (definition, distTag) => {
       const version = readConsistentVersion(definition, root)
-      const publishArgs = ['--dir', definition.packageDirectory, 'publish', '--access', 'public', '--tag', distTag]
+      const publishArgs = ['--dir', definition.packageDirectory, 'publish', '--access', 'public', '--tag', distTag, '--no-git-checks']
       process.stdout.write(`Publishing ${definition.packageName}@${version}...\n`)
       try {
         await runPnpmCollected(publishArgs, root)
