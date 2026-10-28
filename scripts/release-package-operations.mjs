@@ -73,6 +73,20 @@ export const stagedApprovalUrl = (actor) => (
   `https://www.npmjs.com/settings/${actor || 'YOUR_NPM_USERNAME'}/staged-packages`
 )
 
+export const browserApprovalNotice = ({ packageName, version, url }) => {
+  const rule = '='.repeat(64)
+  return [
+    '',
+    rule,
+    '需要在浏览器中打开下面的链接并点击批准，否则不会发布',
+    `${packageName}@${version}`,
+    url,
+    '批准后脚本会自动结束，不用再输入验证码或回车',
+    rule,
+    '',
+  ].join('\n')
+}
+
 export const publishConfirmationPrompt = (expected) => {
   const label = expected.replace(/^PUBLISH\s+/, '')
   return `Publish ${label}? [y/n] `
@@ -257,7 +271,11 @@ export const createReleaseOperations = ({ root = repositoryRoot } = {}) => {
         throw new Error(`npm did not stage ${definition.packageName}@${version} with tag ${distTag}`)
       }
       const approvalUrl = stagedApprovalUrl(staged.actor)
-      process.stdout.write(`This token cannot approve the package in the terminal. Open this page and approve ${definition.packageName}@${version}:\n${approvalUrl}\nWaiting until npm shows the ${distTag} tag. The script exits when the release is visible.\n`)
+      process.stdout.write(`${browserApprovalNotice({
+        packageName: definition.packageName,
+        version,
+        url: approvalUrl,
+      })}\n`)
       const deadline = Date.now() + 10 * 60 * 1000
       while (Date.now() < deadline) {
         let liveVersion = null

@@ -6,6 +6,7 @@ import test from 'node:test'
 
 import {
   acceptsPublishConfirmation,
+  browserApprovalNotice,
   stagedApprovalUrl,
   publishConfirmationPrompt,
   directPublishRequiresStaging,
@@ -49,10 +50,15 @@ test('stages only when direct publish is blocked by the registry policy', () => 
 })
 
 test('builds the npm staged-packages page for the publishing account', () => {
-  assert.equal(
-    stagedApprovalUrl('leason1974'),
-    'https://www.npmjs.com/settings/leason1974/staged-packages',
-  )
+  const url = stagedApprovalUrl('leason1974')
+  const notice = browserApprovalNotice({
+    packageName: '@memtensor/memos-cloud-dsh-plugin',
+    version: '0.1.2-beta.0',
+    url,
+  })
+  assert.equal(url, 'https://www.npmjs.com/settings/leason1974/staged-packages')
+  assert.match(notice, /需要在浏览器中打开下面的链接并点击批准/)
+  assert.ok(notice.split('\n').includes(url))
 })
 
 test('asks for y or n instead of the publish phrase', () => {
