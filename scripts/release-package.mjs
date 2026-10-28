@@ -142,10 +142,7 @@ export const runRelease = async (options, providedOperations) => {
   const sourceCommit = operations.head()
   await operations.publish(definition, plan.distTag)
 
-  if (operations.handedOffToBrowser) {
-    operations.log('浏览器批准后请自行确认 npm 上的版本和标签。')
-    return { ...plan, sourceCommit }
-  }
+  if (operations.handedOffToBrowser) return { ...plan, sourceCommit }
 
   const readPublished = operations.waitForRegistryMetadata ?? operations.readRegistryMetadata
   const metadata = await readPublished(definition, plan.targetVersion, {

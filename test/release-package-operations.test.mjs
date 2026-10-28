@@ -60,7 +60,7 @@ test('builds the npm staged-packages page for the publishing account', () => {
     url,
   })
   assert.equal(url, 'https://www.npmjs.com/settings/leason1974/staged-packages')
-  assert.match(notice, /需要在浏览器中打开下面的链接并点击批准/)
+  assert.match(notice, /请在浏览器中打开下面的链接并点击批准，插件将在批准成功后发布/)
   assert.ok(notice.split('\n').includes(url))
 })
 

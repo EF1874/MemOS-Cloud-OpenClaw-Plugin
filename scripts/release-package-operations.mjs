@@ -78,10 +78,9 @@ export const browserApprovalNotice = ({ packageName, version, url }) => {
   return [
     '',
     rule,
-    '需要在浏览器中打开下面的链接并点击批准，否则不会发布',
+    '请在浏览器中打开下面的链接并点击批准，插件将在批准成功后发布',
     `${packageName}@${version}`,
     url,
-    '请在网页批准后自行确认 npm 上的版本。脚本到此结束',
     rule,
     '',
   ].join('\n')

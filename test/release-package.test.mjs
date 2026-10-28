@@ -367,7 +367,6 @@ test('ends successfully when browser approval cannot be verified', async () => {
   assert.deepEqual(calls.filter(([name]) => name === 'readRegistryMetadata'), [
     ['readRegistryMetadata', '0.1.20'],
   ])
-  assert.equal(calls.some(([name, message]) => name === 'log' && /自行确认/.test(message)), true)
 })
 
 test('rejects post-publish metadata that does not match version, commit, and dist-tag', async () => {
