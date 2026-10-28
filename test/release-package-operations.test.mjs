@@ -5,9 +5,12 @@ import { dirname, join } from 'node:path'
 import test from 'node:test'
 
 import {
+  acceptsPublishConfirmation,
   captureVersionFileSnapshots,
+  findStagedPackage,
   parseNpmViewJson,
   parseRegistryMetadata,
+  parseStageList,
   restoreVersionFileSnapshots,
 } from '../scripts/release-package-operations.mjs'
 
@@ -30,6 +33,35 @@ const withVersionFiles = (callback) => {
     rmSync(root, { recursive: true, force: true })
   }
 }
+
+test('accepts only y as the local publish confirmation', () => {
+  assert.equal(acceptsPublishConfirmation('y'), true)
+  assert.equal(acceptsPublishConfirmation('Y'), true)
+  assert.equal(acceptsPublishConfirmation(' y '), true)
+  assert.equal(acceptsPublishConfirmation('yes'), false)
+  assert.equal(acceptsPublishConfirmation('PUBLISH dsh-v0.1.2-beta.0'), false)
+})
+
+test('selects the newest staged package for the requested version and tag', () => {
+  const output = `[
+    {"id":"old","packageName":"@memtensor/memos-cloud-dsh-plugin","version":"0.1.2-beta.0","tag":"beta","createdAt":"2026-10-28T01:00:00.000Z"},
+    {"id":"other","packageName":"@memtensor/memos-cloud-dsh-plugin","version":"0.1.2-beta.0","tag":"latest","createdAt":"2026-10-28T03:00:00.000Z"},
+    {"id":"new","packageName":"@memtensor/memos-cloud-dsh-plugin","version":"0.1.2-beta.0","tag":"beta","createdAt":"2026-10-28T02:00:00.000Z"}
+  ]`
+  assert.equal(
+    findStagedPackage(parseStageList(output), {
+      packageName: '@memtensor/memos-cloud-dsh-plugin',
+      version: '0.1.2-beta.0',
+      tag: 'beta',
+    }).id,
+    'new',
+  )
+  assert.equal(findStagedPackage(parseStageList('[]'), {
+    packageName: '@memtensor/memos-cloud-dsh-plugin',
+    version: '0.1.2-beta.0',
+    tag: 'beta',
+  }), null)
+})
 
 test('accepts npm 12 single-result JSON arrays', () => {
   assert.equal(parseNpmViewJson('["0.1.1-beta.0"]\n'), '0.1.1-beta.0')

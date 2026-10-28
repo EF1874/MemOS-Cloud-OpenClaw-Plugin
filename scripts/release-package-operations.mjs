@@ -66,6 +66,28 @@ export const parseRegistryMetadata = (output) => {
 
 const isRegistryMiss = (error) => /E404|404 Not Found|No match found/i.test(error instanceof Error ? error.message : String(error))
 
+export const acceptsPublishConfirmation = (answer) => answer.trim().toLowerCase() === 'y'
+
+export const parseStageList = (output) => {
+  const trimmed = output.trim()
+  const start = trimmed.indexOf('[')
+  const items = JSON.parse(start === -1 ? trimmed : trimmed.slice(start))
+  if (!Array.isArray(items)) throw new Error('npm stage list returned invalid JSON')
+  return items
+}
+
+export const findStagedPackage = (items, { packageName, version, tag }) => {
+  const matches = items.filter((item) => (
+    item?.packageName === packageName
+    && item?.version === version
+    && item?.tag === tag
+    && typeof item?.id === 'string'
+    && item.id.length > 0
+  ))
+  matches.sort((left, right) => String(right.createdAt ?? '').localeCompare(String(left.createdAt ?? '')))
+  return matches[0] ?? null
+}
+
 export const createReleaseOperations = ({ root = repositoryRoot } = {}) => {
   const npmView = (args) => runPnpm(['exec', 'npm', 'view', ...args, '--json'], {
     cwd: root,
@@ -110,8 +132,8 @@ export const createReleaseOperations = ({ root = repositoryRoot } = {}) => {
       }
       return tarball
     },
-    publishDryRun: (definition, distTag) => runPnpm([
-      '--dir', definition.packageDirectory, 'publish', '--access', 'public', '--tag', distTag, '--dry-run', '--no-git-checks',
+    publishDryRun: (definition, distTag) => runChecked('npm', [
+      'stage', 'publish', `./${definition.packageDirectory}`, '--access', 'public', '--tag', distTag, '--dry-run',
     ], { cwd: root }),
     npmWhoami: () => runPnpm(['exec', 'npm', 'whoami'], { cwd: root, stdio: 'pipe' }),
     readDistTagVersion: (definition, distTag) => {
@@ -142,8 +164,8 @@ export const createReleaseOperations = ({ root = repositoryRoot } = {}) => {
     confirm: async (expected) => {
       const prompt = createInterface({ input: process.stdin, output: process.stdout })
       try {
-        const answer = await prompt.question(`Type ${expected} to continue: `)
-        if (answer.trim() !== expected) throw new Error(`Publish confirmation must exactly equal: ${expected}`)
+        const answer = await prompt.question(`${expected}\nType y to continue: `)
+        if (!acceptsPublishConfirmation(answer)) throw new Error('Publish confirmation must be y')
       } finally {
         prompt.close()
       }
@@ -162,9 +184,28 @@ export const createReleaseOperations = ({ root = repositoryRoot } = {}) => {
       git(root, ['add', '--', ...definition.versionFiles])
       git(root, ['commit', '-m', `chore(${definition.key}): release ${definition.tagPrefix}${version}`])
     },
-    publish: (definition, distTag) => runPnpm([
-      '--dir', definition.packageDirectory, 'publish', '--access', 'public', '--tag', distTag,
-    ], { cwd: root }),
+    publish: (definition, distTag) => {
+      const version = readConsistentVersion(definition, root)
+      const listStaged = () => findStagedPackage(
+        parseStageList(runChecked('npm', ['stage', 'list', definition.packageName, '--json'], {
+          cwd: root,
+          stdio: ['ignore', 'pipe', 'inherit'],
+        })),
+        { packageName: definition.packageName, version, tag: distTag },
+      )
+      let staged = listStaged()
+      if (staged === null) {
+        runChecked('npm', [
+          'stage', 'publish', `./${definition.packageDirectory}`, '--access', 'public', '--tag', distTag,
+        ], { cwd: root })
+        staged = listStaged()
+      }
+      if (staged === null) {
+        throw new Error(`npm did not stage ${definition.packageName}@${version} with tag ${distTag}`)
+      }
+      process.stdout.write(`Approving staged ${definition.packageName}@${version}. Complete the 2FA prompt if npm asks for it.\n`)
+      runChecked('npm', ['stage', 'approve', staged.id], { cwd: root })
+    },
     log: (message) => process.stdout.write(`${message}\n`),
   }
 }
