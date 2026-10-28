@@ -69,6 +69,11 @@ const isRegistryMiss = (error) => /E404|404 Not Found|No match found/i.test(erro
 
 export const acceptsPublishConfirmation = (answer) => answer.trim().toLowerCase() === 'y'
 
+export const publishConfirmationPrompt = (expected) => {
+  const label = expected.replace(/^PUBLISH\s+/, '')
+  return `Publish ${label}? [y/n] `
+}
+
 export const directPublishRequiresStaging = (output) => (
   /two-factor authentication|bypass 2fa|E_STAGE_REQUIRED|npm stage publish|staged version|already staged/i.test(output)
 )
@@ -185,7 +190,8 @@ export const createReleaseOperations = ({ root = repositoryRoot } = {}) => {
     confirm: async (expected) => {
       const prompt = createInterface({ input: process.stdin, output: process.stdout })
       try {
-        const answer = await prompt.question(`${expected}\nType y to continue: `)
+        const answer = await prompt.question(publishConfirmationPrompt(expected))
+        if (answer.trim().toLowerCase() === 'n') throw new Error('Publish cancelled')
         if (!acceptsPublishConfirmation(answer)) throw new Error('Publish confirmation must be y')
       } finally {
         prompt.close()

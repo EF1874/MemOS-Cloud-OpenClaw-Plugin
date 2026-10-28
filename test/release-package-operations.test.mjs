@@ -6,6 +6,7 @@ import test from 'node:test'
 
 import {
   acceptsPublishConfirmation,
+  publishConfirmationPrompt,
   directPublishRequiresStaging,
   captureVersionFileSnapshots,
   findStagedPackage,
@@ -44,6 +45,13 @@ test('stages only when direct publish is blocked by the registry policy', () => 
   ), true)
   assert.equal(directPublishRequiresStaging('You cannot publish over the previously published versions'), false)
   assert.equal(directPublishRequiresStaging('ENEEDAUTH This command requires you to be logged in'), false)
+})
+
+test('asks for y or n instead of the publish phrase', () => {
+  assert.equal(
+    publishConfirmationPrompt('PUBLISH dsh-v0.1.2-beta.0'),
+    'Publish dsh-v0.1.2-beta.0? [y/n] ',
+  )
 })
 
 test('accepts only y as the local publish confirmation', () => {
