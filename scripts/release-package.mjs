@@ -142,7 +142,7 @@ export const runRelease = async (options, providedOperations) => {
   const sourceCommit = operations.head()
   let publishError
   try {
-    operations.publish(definition, plan.distTag)
+    await operations.publish(definition, plan.distTag)
   } catch (error) {
     publishError = error
   }

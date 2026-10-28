@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { createInterface } from 'node:readline/promises'
@@ -98,21 +98,30 @@ export const findStagedPackage = (items, { packageName, version, tag }) => {
   return matches[0] ?? null
 }
 
-const runPnpmCollected = (args, cwd) => {
+const runPnpmCollected = (args, cwd) => new Promise((resolve, reject) => {
   const invocation = pnpmInvocation(args)
-  const result = spawnSync(invocation.command, invocation.args, {
+  const child = spawn(invocation.command, invocation.args, {
     cwd,
-    encoding: 'utf8',
     env: process.env,
-    stdio: ['inherit', 'pipe', 'pipe'],
+    stdio: ['ignore', 'pipe', 'pipe'],
   })
-  const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
-  if (output) process.stdout.write(output.endsWith('\n') ? output : `${output}\n`)
-  if (result.error !== undefined) throw result.error
-  if (result.status !== 0) {
-    throw new Error(output.trim() || `Command failed (${result.status}): ${invocation.command} ${invocation.args.join(' ')}`)
+  let output = ''
+  const forward = (chunk, stream) => {
+    const text = chunk.toString()
+    output += text
+    stream.write(text)
   }
-}
+  child.stdout?.on('data', (chunk) => forward(chunk, process.stdout))
+  child.stderr?.on('data', (chunk) => forward(chunk, process.stderr))
+  child.on('error', reject)
+  child.on('close', (status) => {
+    if (status !== 0) {
+      reject(new Error(output.trim() || `Command failed (${status}): ${invocation.command} ${invocation.args.join(' ')}`))
+      return
+    }
+    resolve()
+  })
+})
 
 export const createReleaseOperations = ({ root = repositoryRoot } = {}) => {
   const npmView = (args) => runPnpm(['exec', 'npm', 'view', ...args, '--json'], {
@@ -211,11 +220,12 @@ export const createReleaseOperations = ({ root = repositoryRoot } = {}) => {
       git(root, ['add', '--', ...definition.versionFiles])
       git(root, ['commit', '-m', `chore(${definition.key}): release ${definition.tagPrefix}${version}`])
     },
-    publish: (definition, distTag) => {
+    publish: async (definition, distTag) => {
       const version = readConsistentVersion(definition, root)
       const publishArgs = ['--dir', definition.packageDirectory, 'publish', '--access', 'public', '--tag', distTag]
+      process.stdout.write(`Publishing ${definition.packageName}@${version}...\n`)
       try {
-        runPnpmCollected(publishArgs, root)
+        await runPnpmCollected(publishArgs, root)
         return
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error)
