@@ -25,10 +25,24 @@ export const runChecked = (command, args, options = {}) => {
   return result.stdout?.trim() ?? ''
 }
 
+const nodeScriptEntry = /\.(?:[cm]?js)$/i
+const windowsBatchEntry = /\.(?:cmd|bat)$/i
+
 export const pnpmInvocation = (args, env = process.env, platform = process.platform) => {
   const pnpmEntry = env.npm_execpath
   if (pnpmEntry !== undefined && pnpmEntry.length > 0) {
-    return { command: process.execPath, args: [pnpmEntry, ...args] }
+    // pnpm 11's standalone build sets npm_execpath to a native executable.
+    // Only a JavaScript entry can be loaded by node.
+    if (nodeScriptEntry.test(pnpmEntry)) {
+      return { command: process.execPath, args: [pnpmEntry, ...args] }
+    }
+    if (windowsBatchEntry.test(pnpmEntry)) {
+      return {
+        command: env.ComSpec ?? env.COMSPEC ?? 'cmd.exe',
+        args: ['/d', '/s', '/c', pnpmEntry, ...args],
+      }
+    }
+    return { command: pnpmEntry, args }
   }
 
   if (platform === 'win32') {
