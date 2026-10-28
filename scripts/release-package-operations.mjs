@@ -78,8 +78,6 @@ export const directPublishRequiresStaging = (output) => (
   /two-factor authentication|bypass 2fa|E_STAGE_REQUIRED|npm stage publish|staged version|already staged/i.test(output)
 )
 
-export const publishStoppedBeforeUpload = (output) => /ERR_PNPM_GIT_NOT_CORRECT_BRANCH|publish-branch/i.test(output)
-
 export const parseStageList = (output) => {
   const trimmed = output.trim()
   const start = trimmed.indexOf('[')
@@ -105,16 +103,14 @@ const runPnpmCollected = (args, cwd) => new Promise((resolve, reject) => {
   const child = spawn(invocation.command, invocation.args, {
     cwd,
     env: process.env,
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['inherit', 'inherit', 'pipe'],
   })
   let output = ''
-  const forward = (chunk, stream) => {
+  child.stderr?.on('data', (chunk) => {
     const text = chunk.toString()
     output += text
-    stream.write(text)
-  }
-  child.stdout?.on('data', (chunk) => forward(chunk, process.stdout))
-  child.stderr?.on('data', (chunk) => forward(chunk, process.stderr))
+    process.stderr.write(text)
+  })
   child.on('error', reject)
   child.on('close', (status) => {
     if (status !== 0) {
@@ -224,7 +220,7 @@ export const createReleaseOperations = ({ root = repositoryRoot } = {}) => {
     },
     publish: async (definition, distTag) => {
       const version = readConsistentVersion(definition, root)
-      const publishArgs = ['--dir', definition.packageDirectory, 'publish', '--access', 'public', '--tag', distTag, '--no-git-checks']
+      const publishArgs = ['--dir', definition.packageDirectory, 'publish', '--access', 'public', '--tag', distTag]
       process.stdout.write(`Publishing ${definition.packageName}@${version}...\n`)
       try {
         await runPnpmCollected(publishArgs, root)

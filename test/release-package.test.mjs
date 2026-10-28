@@ -332,6 +332,22 @@ test('beta current and beta-patch use the beta dist-tag', async () => {
   assert.deepEqual(patch.calls.filter(([name]) => name === 'publish'), [['publish', 'dsh', 'beta']])
 })
 
+test('does not check the registry after a failed publish', async () => {
+  const { calls, operations } = createOperations({
+    publish: () => {
+      throw new Error("ERR_PNPM_GIT_NOT_CORRECT_BRANCH Branch is not on 'master|main'.")
+    },
+  })
+
+  await assert.rejects(
+    () => runRelease({ pluginKey: 'openclaw', channel: 'stable', bump: 'current', dryRun: false }, operations),
+    /GIT_NOT_CORRECT_BRANCH/,
+  )
+  assert.deepEqual(calls.filter(([name]) => name === 'readRegistryMetadata'), [
+    ['readRegistryMetadata', '0.1.20'],
+  ])
+})
+
 test('rejects post-publish metadata that does not match version, commit, and dist-tag', async () => {
   const { operations } = createOperations({
     readRegistryMetadata: (() => {
