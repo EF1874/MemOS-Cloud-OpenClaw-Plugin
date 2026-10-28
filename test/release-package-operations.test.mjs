@@ -6,6 +6,8 @@ import test from 'node:test'
 
 import {
   captureVersionFileSnapshots,
+  parseNpmViewJson,
+  parseRegistryMetadata,
   restoreVersionFileSnapshots,
 } from '../scripts/release-package-operations.mjs'
 
@@ -28,6 +30,26 @@ const withVersionFiles = (callback) => {
     rmSync(root, { recursive: true, force: true })
   }
 }
+
+test('accepts npm 12 single-result JSON arrays', () => {
+  assert.equal(parseNpmViewJson('["0.1.1-beta.0"]\n'), '0.1.1-beta.0')
+  assert.equal(parseNpmViewJson('"0.1.1-beta.0"'), '0.1.1-beta.0')
+  assert.deepEqual(
+    parseRegistryMetadata(`[
+      {
+        "version": "0.1.1",
+        "gitHead": "abc",
+        "dist-tags": { "beta": "0.1.1-beta.0" }
+      }
+    ]`),
+    {
+      version: '0.1.1',
+      gitHead: 'abc',
+      distTags: { beta: '0.1.1-beta.0' },
+    },
+  )
+  assert.throws(() => parseNpmViewJson('["0.1.1","0.1.2"]'), /2 JSON results/)
+})
 
 test('captures and restores version files byte-for-byte', () => {
   withVersionFiles(({ definition, originals, root }) => {

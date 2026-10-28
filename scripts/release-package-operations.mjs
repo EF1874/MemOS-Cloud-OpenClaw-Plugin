@@ -48,8 +48,15 @@ const readConsistentVersion = (definition, root) => {
   return expected
 }
 
-const parseRegistryMetadata = (output) => {
+export const parseNpmViewJson = (output) => {
   const value = JSON.parse(output)
+  if (!Array.isArray(value)) return value
+  if (value.length !== 1) throw new Error(`npm returned ${value.length} JSON results`)
+  return value[0]
+}
+
+export const parseRegistryMetadata = (output) => {
+  const value = parseNpmViewJson(output)
   return {
     version: value.version,
     gitHead: value.gitHead,
@@ -109,7 +116,7 @@ export const createReleaseOperations = ({ root = repositoryRoot } = {}) => {
     npmWhoami: () => runPnpm(['exec', 'npm', 'whoami'], { cwd: root, stdio: 'pipe' }),
     readDistTagVersion: (definition, distTag) => {
       try {
-        const version = JSON.parse(npmView([`${definition.packageName}@${distTag}`, 'version']))
+        const version = parseNpmViewJson(npmView([`${definition.packageName}@${distTag}`, 'version']))
         if (typeof version !== 'string') throw new Error(`npm returned an invalid ${distTag} version`)
         return version
       } catch (error) {
