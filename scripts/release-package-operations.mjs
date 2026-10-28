@@ -103,14 +103,16 @@ const runPnpmCollected = (args, cwd) => new Promise((resolve, reject) => {
   const child = spawn(invocation.command, invocation.args, {
     cwd,
     env: process.env,
-    stdio: ['inherit', 'inherit', 'pipe'],
+    stdio: ['ignore', 'pipe', 'pipe'],
   })
   let output = ''
-  child.stderr?.on('data', (chunk) => {
+  const forward = (chunk, stream) => {
     const text = chunk.toString()
     output += text
-    process.stderr.write(text)
-  })
+    stream.write(text)
+  }
+  child.stdout?.on('data', (chunk) => forward(chunk, process.stdout))
+  child.stderr?.on('data', (chunk) => forward(chunk, process.stderr))
   child.on('error', reject)
   child.on('close', (status) => {
     if (status !== 0) {
@@ -244,6 +246,8 @@ export const createReleaseOperations = ({ root = repositoryRoot } = {}) => {
           'stage', 'publish', `./${definition.packageDirectory}`, '--access', 'public', '--tag', distTag,
         ], { cwd: root })
         staged = listStaged()
+      } else {
+        process.stdout.write(`Using the existing staged ${definition.packageName}@${version}.\n`)
       }
       if (staged === null) {
         throw new Error(`npm did not stage ${definition.packageName}@${version} with tag ${distTag}`)
