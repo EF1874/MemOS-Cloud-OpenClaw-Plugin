@@ -1,10 +1,11 @@
+import { spawnSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 
 import { waitForNpmReleaseVisibility } from '../.github/scripts/wait-for-npm-release.mjs'
 import { packPackage } from './pack-package.mjs'
-import { repositoryRoot, runChecked, runPnpm } from './command-runtime.mjs'
+import { pnpmInvocation, repositoryRoot, runChecked, runPnpm } from './command-runtime.mjs'
 
 const gitSafeDirectory = (root) => root.replaceAll('\\', '/')
 const git = (root, args, options = {}) => runChecked(
@@ -68,6 +69,10 @@ const isRegistryMiss = (error) => /E404|404 Not Found|No match found/i.test(erro
 
 export const acceptsPublishConfirmation = (answer) => answer.trim().toLowerCase() === 'y'
 
+export const directPublishRequiresStaging = (output) => (
+  /two-factor authentication|bypass 2fa|E_STAGE_REQUIRED|npm stage publish|staged version|already staged/i.test(output)
+)
+
 export const parseStageList = (output) => {
   const trimmed = output.trim()
   const start = trimmed.indexOf('[')
@@ -86,6 +91,22 @@ export const findStagedPackage = (items, { packageName, version, tag }) => {
   ))
   matches.sort((left, right) => String(right.createdAt ?? '').localeCompare(String(left.createdAt ?? '')))
   return matches[0] ?? null
+}
+
+const runPnpmCollected = (args, cwd) => {
+  const invocation = pnpmInvocation(args)
+  const result = spawnSync(invocation.command, invocation.args, {
+    cwd,
+    encoding: 'utf8',
+    env: process.env,
+    stdio: ['inherit', 'pipe', 'pipe'],
+  })
+  const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
+  if (output) process.stdout.write(output.endsWith('\n') ? output : `${output}\n`)
+  if (result.error !== undefined) throw result.error
+  if (result.status !== 0) {
+    throw new Error(output.trim() || `Command failed (${result.status}): ${invocation.command} ${invocation.args.join(' ')}`)
+  }
 }
 
 export const createReleaseOperations = ({ root = repositoryRoot } = {}) => {
@@ -132,8 +153,8 @@ export const createReleaseOperations = ({ root = repositoryRoot } = {}) => {
       }
       return tarball
     },
-    publishDryRun: (definition, distTag) => runChecked('npm', [
-      'stage', 'publish', `./${definition.packageDirectory}`, '--access', 'public', '--tag', distTag, '--dry-run',
+    publishDryRun: (definition, distTag) => runPnpm([
+      '--dir', definition.packageDirectory, 'publish', '--access', 'public', '--tag', distTag, '--dry-run', '--no-git-checks',
     ], { cwd: root }),
     npmWhoami: () => runPnpm(['exec', 'npm', 'whoami'], { cwd: root, stdio: 'pipe' }),
     readDistTagVersion: (definition, distTag) => {
@@ -186,6 +207,16 @@ export const createReleaseOperations = ({ root = repositoryRoot } = {}) => {
     },
     publish: (definition, distTag) => {
       const version = readConsistentVersion(definition, root)
+      const publishArgs = ['--dir', definition.packageDirectory, 'publish', '--access', 'public', '--tag', distTag]
+      try {
+        runPnpmCollected(publishArgs, root)
+        return
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error)
+        if (!directPublishRequiresStaging(detail)) throw error
+        process.stdout.write('Direct publish needs a staged approval. Staging the package instead.\n')
+      }
+
       const listStaged = () => findStagedPackage(
         parseStageList(runChecked('npm', ['stage', 'list', definition.packageName, '--json'], {
           cwd: root,

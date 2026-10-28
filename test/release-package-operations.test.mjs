@@ -6,6 +6,7 @@ import test from 'node:test'
 
 import {
   acceptsPublishConfirmation,
+  directPublishRequiresStaging,
   captureVersionFileSnapshots,
   findStagedPackage,
   parseNpmViewJson,
@@ -33,6 +34,17 @@ const withVersionFiles = (callback) => {
     rmSync(root, { recursive: true, force: true })
   }
 }
+
+test('stages only when direct publish is blocked by the registry policy', () => {
+  assert.equal(directPublishRequiresStaging(
+    '403 Forbidden - Two-factor authentication or granular access token with bypass 2fa enabled is required to publish packages.',
+  ), true)
+  assert.equal(directPublishRequiresStaging(
+    'E_STAGE_REQUIRED: run npm stage publish and have the version approved',
+  ), true)
+  assert.equal(directPublishRequiresStaging('You cannot publish over the previously published versions'), false)
+  assert.equal(directPublishRequiresStaging('ENEEDAUTH This command requires you to be logged in'), false)
+})
 
 test('accepts only y as the local publish confirmation', () => {
   assert.equal(acceptsPublishConfirmation('y'), true)

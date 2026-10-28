@@ -19,7 +19,7 @@ export const runChecked = (command, args, options = {}) => {
 
   if (result.error !== undefined) throw result.error
   if (result.status !== 0) {
-    const detail = result.stderr?.trim()
+    const detail = [result.stdout, result.stderr].filter((item) => item?.trim()).join('\n').trim()
     throw new Error(detail || `Command failed (${result.status}): ${command} ${args.join(' ')}`)
   }
   return result.stdout?.trim() ?? ''
