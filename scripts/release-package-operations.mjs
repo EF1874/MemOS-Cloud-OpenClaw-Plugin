@@ -93,7 +93,7 @@ export const publishConfirmationPrompt = (expected) => {
 }
 
 export const directPublishRequiresStaging = (output) => (
-  /two-factor authentication|bypass 2fa|E_STAGE_REQUIRED|npm stage publish|staged version|already staged/i.test(output)
+  /two-factor authentication|bypass 2fa|E_STAGE_REQUIRED|npm stage publish|staged version|already staged|ERR_PNPM_OTP_NON_INTERACTIVE|additional authentication/i.test(output)
 )
 
 export const parseStageList = (output) => {

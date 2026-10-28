@@ -45,6 +45,9 @@ test('stages only when direct publish is blocked by the registry policy', () => 
   assert.equal(directPublishRequiresStaging(
     'E_STAGE_REQUIRED: run npm stage publish and have the version approved',
   ), true)
+  assert.equal(directPublishRequiresStaging(
+    '[ERR_PNPM_OTP_NON_INTERACTIVE] The registry requires additional authentication, but pnpm is not running in an interactive terminal',
+  ), true)
   assert.equal(directPublishRequiresStaging('You cannot publish over the previously published versions'), false)
   assert.equal(directPublishRequiresStaging('ENEEDAUTH This command requires you to be logged in'), false)
 })
