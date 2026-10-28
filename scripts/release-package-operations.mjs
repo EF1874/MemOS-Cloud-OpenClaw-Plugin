@@ -81,7 +81,7 @@ export const browserApprovalNotice = ({ packageName, version, url }) => {
     '需要在浏览器中打开下面的链接并点击批准，否则不会发布',
     `${packageName}@${version}`,
     url,
-    '批准后脚本会自动结束，不用再输入验证码或回车',
+    '请在网页批准后自行确认 npm 上的版本。脚本到此结束',
     rule,
     '',
   ].join('\n')
@@ -238,7 +238,7 @@ export const createReleaseOperations = ({ root = repositoryRoot } = {}) => {
       git(root, ['add', '--', ...definition.versionFiles])
       git(root, ['commit', '-m', `chore(${definition.key}): release ${definition.tagPrefix}${version}`])
     },
-    publish: async (definition, distTag) => {
+    publish: async function publish (definition, distTag) {
       const version = readConsistentVersion(definition, root)
       const publishArgs = ['--dir', definition.packageDirectory, 'publish', '--access', 'public', '--tag', distTag, '--no-git-checks']
       process.stdout.write(`Publishing ${definition.packageName}@${version}...\n`)
@@ -276,23 +276,7 @@ export const createReleaseOperations = ({ root = repositoryRoot } = {}) => {
         version,
         url: approvalUrl,
       })}\n`)
-      const deadline = Date.now() + 10 * 60 * 1000
-      while (Date.now() < deadline) {
-        let liveVersion = null
-        try {
-          const viewed = parseNpmViewJson(npmView([`${definition.packageName}@${distTag}`, 'version']))
-          liveVersion = typeof viewed === 'string' ? viewed : null
-        } catch (error) {
-          if (!isRegistryMiss(error)) throw error
-        }
-        if (liveVersion === version) {
-          process.stdout.write(`${definition.packageName}@${version} is live on ${distTag}.\n`)
-          this.approvedInBrowser = true
-          return
-        }
-        await new Promise((resolve) => setTimeout(resolve, 5000))
-      }
-      throw new Error(`Timed out waiting for ${definition.packageName}@${version} on the ${distTag} tag. Approve it at ${approvalUrl}`)
+      this.handedOffToBrowser = true
     },
     log: (message) => process.stdout.write(`${message}\n`),
   }

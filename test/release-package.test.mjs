@@ -348,6 +348,28 @@ test('does not check the registry after a failed publish', async () => {
   ])
 })
 
+test('ends successfully when browser approval cannot be verified', async () => {
+  const { calls, operations } = createOperations({
+    publish () {
+      calls.push(['publish', 'openclaw', 'latest'])
+      this.handedOffToBrowser = true
+    },
+  })
+
+  const result = await runRelease({
+    pluginKey: 'openclaw',
+    channel: 'stable',
+    bump: 'current',
+    dryRun: false,
+  }, operations)
+
+  assert.equal(result.targetVersion, '0.1.20')
+  assert.deepEqual(calls.filter(([name]) => name === 'readRegistryMetadata'), [
+    ['readRegistryMetadata', '0.1.20'],
+  ])
+  assert.equal(calls.some(([name, message]) => name === 'log' && /自行确认/.test(message)), true)
+})
+
 test('rejects post-publish metadata that does not match version, commit, and dist-tag', async () => {
   const { operations } = createOperations({
     readRegistryMetadata: (() => {
