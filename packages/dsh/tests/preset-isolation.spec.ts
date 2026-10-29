@@ -10,6 +10,10 @@ interface Projection {
   stateOf(session: Session, key: string): unknown
 }
 
+interface Presets {
+  presetForSession?: (session: Session) => string | null
+}
+
 const projectionOf = (value: unknown): Projection => ({
   stateOf: (_session, key) => key === 'agentPreset' ? value : undefined,
 })
@@ -21,6 +25,7 @@ afterEach(async () => {
 
 const mount = async (options: {
   projection?: Projection
+  presets?: Presets
   agentId?: string
   multiAgentMode?: boolean
 } = {}) => {
@@ -32,6 +37,11 @@ const mount = async (options: {
     name: 'fixture-preset-projections',
     apply(ctx: Context) { ctx.provide('sessionProjections', projection) },
   })
+  const presets = options.presets
+  const owner = presets === undefined ? undefined : await root.plugin({
+    name: 'fixture-preset-owner',
+    apply(ctx: Context) { ctx.provide('agentPresets', presets) },
+  })
   const search = vi.fn(async (_request: MemosSearchRequest, _signal?: AbortSignal): Promise<MemosSearchData> => ({
     memory_detail_list: [],
   }))
@@ -39,8 +49,8 @@ const mount = async (options: {
   let controller: MemosLifecycleController | undefined
   const consumer = await root.plugin({
     name: 'fixture-memos-preset-consumer',
-    // Match the actual plugin mount: sessionProjections is optional and is not
-    // declared in inject. Direct ctx.sessionProjections access fails here.
+    // Match the actual plugin mount: both preset services are optional and are
+    // not declared in inject. Access must work through ctx.get().
     inject,
     apply(ctx: Context) {
       controller = installMemosLifecycle(ctx, {
@@ -52,10 +62,11 @@ const mount = async (options: {
   cleanups.push(async () => {
     await controller?.dispose()
     await consumer.dispose()
+    await owner?.dispose()
     await provider?.dispose()
   })
   if (controller === undefined) throw new Error('MemOS consumer did not activate')
-  return { root, controller, search, add }
+  return { root, controller, search, add, owner }
 }
 
 const createSession = (preset?: string): Session => {
@@ -96,9 +107,78 @@ const completeTurn = async (
 }
 
 describe('preset memory isolation in a mounted plugin', () => {
-  it('follows coding and standard switches in the same session for search and add', async () => {
+  it('uses the owning service for live preset switches without reading the deprecated projection', async () => {
+    const legacyRead = vi.fn(() => 'stale-projection')
+    const presets = {
+      current: 'coding',
+      presetForSession: vi.fn(function (this: { current: string }, _session: Session) { return this.current }),
+    }
+    const harness = await mount({ presets, projection: { stateOf: legacyRead } })
+    const session = createSession('minimal')
+    await completeTurn(harness, session)
+    presets.current = 'standard'
+    await completeTurn(harness, session, 2)
+
+    expect(harness.search.mock.calls.map(([request]) => request.filter)).toEqual([
+      { user: { agent_id: 'coding' } },
+      { user: { agent_id: 'standard' } },
+    ])
+    expect(harness.add.mock.calls.map(([request]) => request.agent_id)).toEqual(['coding', 'standard'])
+    expect(harness.add.mock.calls.map(([request]) => request.info?.dsh_agent_preset)).toEqual(['coding', 'standard'])
+    expect(presets.presetForSession).toHaveBeenCalledWith(session)
+    expect(legacyRead).not.toHaveBeenCalled()
+  })
+
+  it('reads the owning service without requiring a projection registry', async () => {
+    const harness = await mount({ presets: { presetForSession: () => 'coding' } })
+    await completeTurn(harness, createSession('minimal'))
+    expect(harness.search.mock.calls[0]?.[0].filter).toEqual({ user: { agent_id: 'coding' } })
+    expect(harness.add.mock.calls[0]?.[0]).toMatchObject({ agent_id: 'coding', info: { dsh_agent_preset: 'coding' } })
+  })
+
+  it.each(['fallback', undefined])('does not revive a cleared preset with configured fallback %s', async agentId => {
+    const legacyRead = vi.fn(() => 'stale-projection')
+    const harness = await mount({
+      presets: { presetForSession: () => null },
+      projection: { stateOf: legacyRead },
+      ...(agentId === undefined ? {} : { agentId }),
+    })
+    await completeTurn(harness, createSession('minimal'))
+    expect(harness.search.mock.calls[0]?.[0].filter).toEqual(agentId ? { user: { agent_id: agentId } } : undefined)
+    if (agentId) expect(harness.add.mock.calls[0]?.[0].agent_id).toBe(agentId)
+    else expect(harness.add.mock.calls[0]?.[0]).not.toHaveProperty('agent_id')
+    expect(harness.add.mock.calls[0]?.[0].info).not.toHaveProperty('dsh_agent_preset')
+    expect(legacyRead).not.toHaveBeenCalled()
+  })
+
+  it('preserves the header fallback on owner read failure without consulting the deprecated API', async () => {
+    const legacyRead = vi.fn(() => 'stale-projection')
+    const harness = await mount({
+      presets: { presetForSession() { throw new Error('owner unavailable') } },
+      projection: { stateOf: legacyRead },
+    })
+    await completeTurn(harness, createSession('minimal'))
+    expect(harness.search.mock.calls[0]?.[0].filter).toEqual({ user: { agent_id: 'minimal' } })
+    expect(harness.add.mock.calls[0]?.[0].agent_id).toBe('minimal')
+    expect(legacyRead).not.toHaveBeenCalled()
+  })
+
+  it('keeps memory operations available after the optional preset owner is disposed', async () => {
+    const harness = await mount({ presets: { presetForSession: () => 'coding' } })
+    const session = createSession('minimal')
+    await completeTurn(harness, session)
+    await harness.owner!.dispose()
+    expect(harness.root.get('agentPresets')).toBeUndefined()
+    await completeTurn(harness, session, 2)
+    expect(harness.search.mock.calls.map(([request]) => request.filter)).toEqual([
+      { user: { agent_id: 'coding' } }, { user: { agent_id: 'minimal' } },
+    ])
+    expect(harness.add.mock.calls.map(([request]) => request.agent_id)).toEqual(['coding', 'minimal'])
+  })
+
+  it('follows legacy projection switches when the owner has no modern read method', async () => {
     let current = 'coding'
-    const harness = await mount({ projection: { stateOf: () => current } })
+    const harness = await mount({ presets: {}, projection: { stateOf: () => current } })
     const session = createSession('minimal')
     await completeTurn(harness, session)
     current = 'standard'
@@ -144,8 +224,11 @@ describe('preset memory isolation in a mounted plugin', () => {
     expect(harness.add.mock.calls[0]?.[0].info).not.toHaveProperty('dsh_agent_preset')
   })
 
-  it('keeps the configured agent_id when multiAgentMode is disabled', async () => {
-    const harness = await mount({ projection: projectionOf('coding'), agentId: 'fixed', multiAgentMode: false })
+  it.each([
+    { name: 'owner API', presets: { presetForSession: () => 'coding' } },
+    { name: 'legacy projection', projection: projectionOf('coding') },
+  ])('keeps the configured agent_id when multiAgentMode is disabled with $name', async services => {
+    const harness = await mount({ ...services, agentId: 'fixed', multiAgentMode: false })
     await completeTurn(harness, createSession('minimal'))
     expect(harness.search).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
       filter: { user: { agent_id: 'fixed' } },

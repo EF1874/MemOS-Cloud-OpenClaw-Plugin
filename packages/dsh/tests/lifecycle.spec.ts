@@ -50,7 +50,7 @@ const createAgent = (session: Session): Agent => ({
   options: {},
 } as unknown as Agent)
 
-/** A session-projection service stub, shaped the way a current DSH runtime exposes it. */
+/** Legacy projection read face retained for older DSH SDK compatibility. */
 const presetProjection = (value: unknown): { stateOf: (session: Session, key: string) => unknown } => ({
   stateOf: (_session: Session, key: string) => (key === 'agentPreset' ? value : undefined),
 })

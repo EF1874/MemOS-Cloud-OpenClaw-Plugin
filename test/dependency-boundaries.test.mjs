@@ -12,7 +12,8 @@ const sourceFiles = (directory) => {
   const files = []
   const visit = (path) => {
     for (const entry of readdirSync(path, { withFileTypes: true })) {
-      if (['dist', 'lib', 'node_modules'].includes(entry.name)) continue
+      // Local smoke evidence can contain archived copies of the whole repository.
+      if (['artifacts', 'dist', 'lib', 'node_modules'].includes(entry.name)) continue
       const child = join(path, entry.name)
       if (entry.isDirectory()) visit(child)
       else if (sourceExtensions.has(extname(entry.name))) files.push(child)

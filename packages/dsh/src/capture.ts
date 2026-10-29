@@ -1,5 +1,6 @@
 import type { ContentBlock, ToolResultMessage } from '@deepseek-ai/dsh-llm'
-import { isAppendSurfaceEvent, type SessionEvent } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { hostSdk } from './sdk-runtime.ts'
 import { truncateUnicode } from '@memtensor/memos-cloud-plugin-core'
 import type {
   MemosMessage,
@@ -125,7 +126,7 @@ export const captureTurn = (
   const resultCallIds = new Set<string>()
   if (options.includeToolMemory) {
     for (const event of turnEvents) {
-      if (event.type !== 'tool/result' || event.data.turn !== turn || !isAppendSurfaceEvent(event)) continue
+      if (event.type !== 'tool/result' || event.data.turn !== turn || !hostSdk.session.isAppendSurfaceEvent(event)) continue
       const { callId } = readToolResult(event.data.message)
       if (callId !== undefined) resultCallIds.add(callId)
     }
@@ -138,7 +139,7 @@ export const captureTurn = (
   for (const event of turnEvents) {
     if (
       (event.type === 'user/message' || event.type === 'assistant/message' || event.type === 'tool/result')
-      && !isAppendSurfaceEvent(event)
+      && !hostSdk.session.isAppendSurfaceEvent(event)
     ) continue
     if (event.type === 'user/message' && event.data.source.kind === 'user') {
       const content = textContent(event.data.content, options.maxMessageChars)

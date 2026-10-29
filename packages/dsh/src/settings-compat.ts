@@ -1,6 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { createHash, randomUUID } from 'node:crypto'
-import { readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { linkSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync, type Dirent } from 'node:fs'
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { isNode, parseDocument } from 'yaml'
@@ -32,12 +32,19 @@ const read = (path: string): string | undefined => {
   }
 }
 
-const atomicWrite = (path: string, value: string): void => {
+const atomicWrite = (path: string, value: string, exclusive = false): void => {
   const temporary = `${path}.${randomUUID()}.tmp`
-  writeFileSync(temporary, value, { mode: 0o600, flag: 'wx', flush: true })
-  try { renameSync(temporary, path) } catch (error) {
-    unlinkSync(temporary)
-    throw error
+  try {
+    writeFileSync(temporary, value, { mode: 0o600, flag: 'wx', flush: true })
+    // Publish a complete file without replacing another process's archive.
+    if (exclusive) linkSync(temporary, path)
+    else renameSync(temporary, path)
+  } catch (error) {
+    if (!exclusive || (error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+  } finally {
+    try { unlinkSync(temporary) } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
   }
 }
 
@@ -45,17 +52,43 @@ const object = (value: unknown): value is Record<string, unknown> => (
   value !== null && typeof value === 'object' && !Array.isArray(value)
 )
 
+// Earlier plugin versions may already have removed the global section, leaving
+// its only copy in another profile. Recover matching copies without booting it.
+const priorProfileBackup = (home: string): Record<string, unknown> | undefined => {
+  const profilesPath = join(home, 'profiles')
+  let profiles: Dirent[]
+  try { profiles = readdirSync(profilesPath, { withFileTypes: true }) } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+    throw error
+  }
+  let section: Record<string, unknown> | undefined
+  for (const profile of profiles.sort((left, right) => left.name.localeCompare(right.name))) {
+    if (!profile.isDirectory()) continue
+    const saved = read(join(profilesPath, profile.name, 'memos-cloud.legacy.json'))
+    if (saved === undefined) continue
+    const candidate: unknown = JSON.parse(saved)
+    if (!object(candidate)) throw new Error('Legacy memos-cloud settings must be an object')
+    if (section !== undefined && !isDeepStrictEqual(section, candidate)) {
+      throw new Error('Conflicting legacy MemOS backups across profiles; migration has not completed')
+    }
+    section = candidate
+  }
+  return section
+}
+
 /** Claim only our legacy section before the host's rename-and-import job runs.
- * Keep a private, durable backup until the profile write succeeds. A digest
- * prevents old values reappearing after a later Settings reset or on restart.
+ * Archive the home-wide source before removing it, so every profile can migrate.
+ * Each profile keeps its own retry backup and completion digest; completing one
+ * profile must neither consume another's source nor undo a later Settings reset.
  */
 export const prepareLegacyMigration = (ctx: Context): (() => Promise<void>) => {
   const profile = ctx.get('profileContext') as { home: string; dir: string } | undefined
   if (profile === undefined) return async () => {}
+  const sharedBackup = join(profile.home, 'memos-cloud.legacy.json')
   const backup = join(profile.dir, 'memos-cloud.legacy.json')
   const marker = join(profile.dir, 'memos-cloud.migration.json')
   let section: unknown
-  const saved = read(backup)
+  let saved = read(backup)
   if (saved !== undefined) section = JSON.parse(saved)
 
   const legacyPath = join(profile.home, 'settings.yaml')
@@ -67,10 +100,18 @@ export const prepareLegacyMigration = (ctx: Context): (() => Promise<void>) => {
       const node = document.get('memos-cloud', true)
       section = isNode(node) ? node.toJSON() : node
       if (!object(section)) throw new Error('Legacy memos-cloud settings must be an object')
-      atomicWrite(backup, JSON.stringify(section) + '\n')
+      saved = JSON.stringify(section) + '\n'
+      // Other host processes may start before this profile write completes.
+      // Retain the shared source before changing settings.yaml for the host.
+      atomicWrite(sharedBackup, saved)
+      atomicWrite(backup, saved)
       document.delete('memos-cloud')
       atomicWrite(legacyPath, String(document))
     }
+  }
+  if (section === undefined) {
+    const shared = read(sharedBackup)
+    if (shared !== undefined) section = JSON.parse(shared)
   }
   if (section === undefined) {
     const imported = read(`${legacyPath}.imported`)
@@ -81,16 +122,21 @@ export const prepareLegacyMigration = (ctx: Context): (() => Promise<void>) => {
       section = isNode(node) ? node.toJSON() : node
       if (section !== undefined) {
         if (!object(section)) throw new Error('Legacy memos-cloud settings must be an object')
-        atomicWrite(backup, JSON.stringify(section) + '\n')
       }
     }
   }
+  if (section === undefined) section = priorProfileBackup(profile.home)
   if (section === undefined) return async () => {}
   if (!object(section)) throw new Error('Legacy memos-cloud settings must be an object')
   const legacy = section
+  const serialized = JSON.stringify(legacy) + '\n'
+  // An earlier plugin may have preserved this source only inside one profile.
+  // Publish that backup for later profiles, without replacing a newer archive.
+  if (read(sharedBackup) === undefined) atomicWrite(sharedBackup, serialized, true)
   const digest = createHash('sha256').update(JSON.stringify(legacy)).digest('hex')
   const completed = read(marker)
   if (completed !== undefined && JSON.parse(completed).digest === digest) return async () => {}
+  if (saved !== serialized) atomicWrite(backup, serialized)
 
   return async () => {
     // The entry must be active before ConfigEditor can persist its config.
