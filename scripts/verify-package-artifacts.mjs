@@ -5,24 +5,22 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
-import { pnpmInvocation } from './command-runtime.mjs'
+import { pnpmInvocation, repositoryRoot } from './command-runtime.mjs'
 
-const root = new URL('../', import.meta.url).pathname.replace(/^\/(?=[A-Za-z]:)/, '')
-if (!process.env.npm_execpath) throw new Error('Run this verifier through pnpm so npm_execpath is available')
+const root = repositoryRoot
 
-const run = (command, args, cwd = root) => execFileSync(command, args, {
+const run = (command, args, cwd = root, options = {}) => execFileSync(command, args, {
   cwd,
   encoding: 'utf8',
   stdio: ['ignore', 'pipe', 'pipe'],
+  ...options,
 })
 const runPnpm = (args, cwd = root) => {
   const invocation = pnpmInvocation(args)
   return run(invocation.command, invocation.args, cwd)
 }
 
-const artifactRoot = mkdtempSync(join(tmpdir(), 'memos-cloud-packages-'))
-
-const packageDefinitions = [
+const definitions = [
   {
     directory: 'packages/openclaw',
     name: '@memtensor/memos-cloud-openclaw-plugin',
@@ -36,6 +34,18 @@ const packageDefinitions = [
     forbidden: [/openclaw\.plugin\.json$/, /packages\/openclaw/],
   },
 ]
+
+const args = process.argv.slice(2)
+if (args.length !== 0 && (args.length !== 2 || args[0] !== '--plugin' || !['openclaw', 'dsh'].includes(args[1]))) {
+  throw new Error('Usage: pnpm exec node scripts/verify-package-artifacts.mjs [--plugin openclaw|dsh]')
+}
+const packageDefinitions = args.length === 0 ? definitions : definitions.filter(definition => definition.directory === `packages/${args[1]}`)
+if (packageDefinitions.some(definition => definition.directory === 'packages/dsh')) {
+  if (!process.env.DSH_TEST_RUNTIME || !existsSync(join(process.env.DSH_TEST_RUNTIME, 'node_modules/@deepseek-ai/dsh/package.json'))) {
+    throw new Error('Set DSH_TEST_RUNTIME to a full supported DSH installation; the DSH artifact is verified through its host CLI')
+  }
+}
+const artifactRoot = mkdtempSync(join(tmpdir(), 'memos-cloud-packages-'))
 
 const tarballFor = (definition) => {
   const before = new Set(readdirSync(artifactRoot))
@@ -78,8 +88,22 @@ try {
         throw new Error(`${definition.name} tarball contains forbidden content matching ${forbidden}`)
       }
     }
-    installAndImport(definition, tarball)
-    process.stdout.write(`Verified ${definition.name}: ${inventory.length} packed files, isolated install and import passed.\n`)
+    const manifest = JSON.parse(run('tar', ['-xOf', tarball, 'package/package.json']))
+    if (manifest.dependencies?.['@memtensor/memos-cloud-plugin-core']) {
+      throw new Error(`${definition.name} exposes the private core as a runtime dependency`)
+    }
+    if (definition.directory === 'packages/dsh') {
+      run(process.execPath, [join(root, 'packages/dsh/scripts/standalone-smoke.mjs')], root, {
+        env: { ...process.env, DSH_TEST_PACKAGE: tarball }, stdio: 'inherit',
+      })
+      run(process.execPath, [join(root, 'packages/dsh/scripts/host-smoke.mjs')], root, {
+        env: { ...process.env, DSH_TEST_PACKAGE: tarball }, stdio: 'inherit',
+      })
+      process.stdout.write(`Verified ${definition.name}: ${inventory.length} packed files, standalone installation and real DSH host smoke passed.\n`)
+    } else {
+      installAndImport(definition, tarball)
+      process.stdout.write(`Verified ${definition.name}: ${inventory.length} packed files, isolated install and import passed.\n`)
+    }
   }
 } finally {
   if (existsSync(artifactRoot)) rmSync(artifactRoot, { recursive: true, force: true })

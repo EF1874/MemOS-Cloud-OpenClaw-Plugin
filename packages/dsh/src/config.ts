@@ -1,5 +1,5 @@
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
-import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import { hostSdk } from './sdk-runtime.ts'
 import type { LaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import z from '@deepseek-ai/schemastery'
 import { buildEffectiveFilter, validateFilter } from '@memtensor/memos-cloud-plugin-core'
@@ -239,7 +239,7 @@ export const resolveApiKey = async (
   const literal = nonBlankSecret(config.apiKey)
   if (literal !== undefined) return literal
 
-  const resolved = await accessors.credentials?.resolve(credentialRef(config.apiKeyEnv))
+  const resolved = await accessors.credentials?.resolve(hostSdk.credentials.credentialRef(config.apiKeyEnv))
   const credential = nonBlankSecret(resolved?.value)
   if (credential !== undefined) return credential
 

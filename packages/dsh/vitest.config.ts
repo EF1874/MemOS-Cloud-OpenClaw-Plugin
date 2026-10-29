@@ -20,6 +20,7 @@ export default defineConfig({
     })) : [],
   },
   test: {
+    setupFiles: runtime ? ['tests/sdk-runtime.setup.ts'] : [],
     include: ['tests/**/*.spec.ts'],
     environment: 'node',
     pool: 'forks',

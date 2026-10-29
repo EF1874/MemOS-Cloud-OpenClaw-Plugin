@@ -1,4 +1,5 @@
-import { createUserMessage, type UserMessage } from '@deepseek-ai/dsh-llm'
+import type { UserMessage } from '@deepseek-ai/dsh-llm'
+import { hostSdk } from './sdk-runtime.ts'
 import { stringifyTagSafeJson, truncateUnicode } from '@memtensor/memos-cloud-plugin-core'
 import type { JsonValue, RecallProjection } from '@memtensor/memos-cloud-plugin-core'
 
@@ -50,7 +51,7 @@ export const createRecallMessage = (projection: RecallProjection): UserMessage =
     json,
     '</memos-recall>',
   ].join('\n')
-  return createUserMessage({
+  return hostSdk.llm.createUserMessage({
     source: { kind: 'plugin:memos-cloud', form: 'recall' },
     content: [{ type: 'text', text }],
   })

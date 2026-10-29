@@ -1,6 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-credentials'
-import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
+import { hostSdk } from './sdk-runtime.ts'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import { MemosClient, MemosClientError } from '@memtensor/memos-cloud-plugin-core'
@@ -42,26 +42,35 @@ export const MEMOS_SETTINGS_NAMESPACE = 'memos-cloud' as SettingsNamespace
 
 const isSubagent = (session: Session): boolean => session.header.origin === 'subagent'
 
-/** The session-projection service a runtime may expose; older runtimes have none. */
+/** The modern preset owner is optional and absent from the older SDK typings. */
+interface AgentPresetsLike {
+  presetForSession?: (session: Session) => string | null
+}
+
+/** Compatibility read face for SDKs predating the owner's read method. */
 interface SessionProjectionsLike {
   stateOf?: (session: Session, key: string) => unknown
 }
 
 /**
- * The current preset lives in the `agentPreset` session projection; the header
- * carries only its initial value. An absent service, an unregistered projection,
- * or a failed lookup each fall back to the header, while a projection reporting
- * no preset stays absent instead of reviving a stale header value.
+ * Prefer the owner's supported read API. Only older SDKs without that method
+ * use the legacy projection registry. An explicit null is authoritative: never
+ * revive a stale projection or initial header preset after it was cleared.
+ * Missing reads and read failures retain the older header fallback.
  */
 const agentPresetOf = (ctx: Context, session: Session): string | undefined => {
   try {
-    // This optional service is not declared in inject. Property access would
-    // throw in a mounted Cordis plugin, so query it through get().
+    // These services are optional: use get() rather than undeclared injections.
+    const presets = ctx.get('agentPresets') as AgentPresetsLike | undefined
+    if (typeof presets?.presetForSession === 'function') {
+      const current = presets.presetForSession(session)
+      return typeof current === 'string' ? current : undefined
+    }
     const projections = ctx.get('sessionProjections') as SessionProjectionsLike | undefined
     const current = projections?.stateOf?.(session, 'agentPreset')
     if (current !== undefined) return typeof current === 'string' ? current : undefined
   } catch {
-    // Older hosts may not expose the projection or may not have registered it.
+    // An unavailable owner or failed legacy lookup must not interrupt the turn.
   }
   return session.header.agentPreset
 }
@@ -78,7 +87,7 @@ export const installMemosLifecycle = (
   dependencies: MemosLifecycleDependencies = {},
 ): MemosLifecycleController => {
   const logger = dependencies.logger ?? ctx.logger('memos-cloud')
-  const launchEnvironment = launchEnvironmentOf(ctx)
+  const launchEnvironment = hostSdk.launchEnvironment.launchEnvironmentOf(ctx)
   const lifecycle = new AbortController()
   const writeLifecycle = new AbortController()
   const writes = new SessionWriteQueue()
